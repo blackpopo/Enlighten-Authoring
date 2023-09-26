@@ -167,9 +167,9 @@ def decode_from_filename(filename):
     return filename.replace(".csv", "").replace('__dq__', '\"').replace("_", " ")
 
 def app():
-    refresh_button = st.button('Refresh button')
-    if refresh_button:
-        st.experimental_rerun()
+    # refresh_button = st.button('Refresh button')
+    # if refresh_button:
+    #     st.experimental_rerun()
 
     #Queryの管理
     display_title()
