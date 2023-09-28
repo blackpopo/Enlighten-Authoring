@@ -368,9 +368,9 @@ def app():
     if 'cluster_response' in st.session_state and 'cluster_references_list' in st.session_state and 'cluster_reference_titles':
         display_description(st.session_state['cluster_response'])
 
-        if len(st.session_state['references_list']) > 0:
+        if len(st.session_state['cluster_references_list']) > 0:
             display_description('References', size=6)
-            display_references_list(st.session_state['references_list'])
+            display_references_list(st.session_state['cluster_references_list'])
         #終了時にドラフトを入力できるようにする
         display_spaces(2)
         display_description('Please enter a draft of your paper in the input field', 3)
