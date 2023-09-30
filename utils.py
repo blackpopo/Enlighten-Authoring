@@ -374,14 +374,15 @@ def title_review_generate_prompt(abstracts, query_text, language):
                 Task3: Point out implication to {query_text}.
                 Do not use prior knowledge or your own assumptions.
                 Make sure to cite results using [number] notation after the sentence.
-                {language_prompt}
+
 
                 ## Summary ##
 
                 ## Unsolved problems ##
 
                 ## Implication ##
-
+                
+                {language_prompt}
                 """
     return prompt
 
@@ -422,9 +423,10 @@ def summary_writer_generate_prompt(references, cluster_summary, draft, language)
                 Make sure to cite results using [number] notation after the sentence. If the provided search results refer to multiple subjects with the same name, 
                 write separate answers for each subject.\n\n
 
+                Draft: {draft}\n\n
+                
                 {language_prompt}
-
-                Draft: {draft}"""
+                """
     return prompt
 def summery_writer_with_draft(cluster_summary, draft, references, model = 'gpt-3.5-turbo-16k',language="English"):
     prompt = summary_writer_generate_prompt([], cluster_summary, "", language)
