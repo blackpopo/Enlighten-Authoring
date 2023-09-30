@@ -249,7 +249,8 @@ def app():
         display_spaces(2)
         display_description("Generate the Review of articles by AI based on Semantic Scholar search results.", 3)
 
-        st.session_state['number_of_review_papers'] = st.slider(f"From 1 to {min(100, len(st.session_state['papers_df']))} papers are available.",
+        st.session_state['number_of_review_papers'] = st.slider(
+            f"Number of papers that can be used for review: From 1 to {min(100, len(st.session_state['papers_df']))}.",
                                                                       min_value=1, value=20,  max_value=min(100, len(st.session_state['papers_df'])), step=1)
 
         toggle = display_language_toggle(f'top {st.session_state["number_of_review_papers"]} review')
@@ -340,7 +341,8 @@ def app():
                                                st.session_state['cluster_id_to_paper_ids'][selected_number])
         st.session_state['cluster_df_detail'] = cluster_df_detail
         temp_cluster_df_detail = cluster_df_detail.rename(columns={'DegreeCentrality': "Importance"})
-        display_dataframe(temp_cluster_df_detail, f'More information about the ID {selected_number} cluster.', 20, ['Title',  'Importance'])
+        temp_cluster_df_detail.index.name = 'Paper ID'
+        display_dataframe(temp_cluster_df_detail, f'More information about the top 20 papers in Cluster ID {selected_number}.', 20, ['Title',  'Importance'])
 
         display_spaces(2)
         display_description(f'Cluster ID {selected_number} Community Subgraph', size=3)
@@ -351,12 +353,14 @@ def app():
 
     if 'selected_number' in st.session_state and 'cluster_df_detail' in st.session_state and 'query' in st.session_state:
         display_spaces(2)
-        display_description(f'Editing of drafts by AI and selected cluster {st.session_state["selected_number"]}', size=2)
+        display_description(f'Editing of drafts by AI and selected cluster ID {st.session_state["selected_number"]}', size=2)
 
         selected_number = st.session_state['selected_number']
         cluster_df_detail = st.session_state['cluster_df_detail']
 
-        st.session_state['number_of_cluster_review_papers'] = st.slider(f"Number of cluster {selected_number} papers used for editing from 1 to {len(cluster_df_detail)}", min_value=1,
+        st.session_state['number_of_cluster_review_papers'] = st.slider(
+            f"Number of papers in cluster id {selected_number} that can be used for editing: From 1 to {min(100, len(cluster_df_detail))}.",
+                                                                    min_value=1,
                                                                       value=min(len(cluster_df_detail), 20),
                                                                       max_value=min(100, len(cluster_df_detail)), step=1)
 
@@ -366,7 +370,7 @@ def app():
         selected_review_button = st.button(f"Generate the review using the top {st.session_state['number_of_cluster_review_papers']} papers. This may take some time.", )
 
         if selected_review_button:
-            with st.spinner(f"⏳ Currently working on the review of Cluster {selected_number} using AI. Please wait..."):
+            with st.spinner(f"⏳ Currently working on the review of Cluster ID {selected_number} using AI. Please wait..."):
                 selected_cluster_paper_ids = cluster_df_detail['Node'].values.tolist()[:st.session_state['number_of_cluster_review_papers']]
                 result_list, result_dict = get_papers_from_ids(selected_cluster_paper_ids)
                 selected_papers = pd.DataFrame(result_dict)
@@ -397,7 +401,7 @@ def app():
 
         toggle = display_language_toggle(f"review draft")
 
-        write_summary_button = st.button(f"Generate the re-edited version of your draft using the Cluster {st.session_state['selected_number']} review. This may take some time.", )
+        write_summary_button = st.button(f"Generate the re-edited version of your draft using the review of Cluster ID {st.session_state['selected_number']}. This may take some time.", )
 
         if write_summary_button and len(draft_text) > 0:
             with st.spinner("⏳ Generating the re-edited version of your draft with AI..."):
