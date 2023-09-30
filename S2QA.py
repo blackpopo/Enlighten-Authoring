@@ -167,9 +167,9 @@ def decode_from_filename(filename):
     return filename.replace(".csv", "").replace('__dq__', '\"').replace("_", " ")
 
 def app():
-    # refresh_button = st.button('Refresh button')
-    # if refresh_button:
-    #     st.experimental_rerun()
+    refresh_button = st.button('Refresh button')
+    if refresh_button:
+        st.experimental_rerun()
 
     #Queryの管理
     display_title()
@@ -197,10 +197,15 @@ def app():
     if query and get_papers_button:
         total_limit = 100
         with st.spinner("⏳ Getting papers from semantic scholar..."):
-            display_description(f"Query: </h5> <h2> {query} </h2> <h5> is searching for semantic scholar.\n")
-            #Semantic Scholar による論文の保存
-            #良い論文の100件の取得
-            papers, total = get_papers(query, total_limit=total_limit)
+            if os.path.exists(os.path.join(data_folder, f"{safe_filename(encode_to_filename(query))}.csv")):
+                display_description(f"Query: </h5> <h2> {query} </h2> <h5> is already searched before.\n")
+                papers = load_papers_dataframe(encode_to_filename(query))
+                total = None
+            else:
+                display_description(f"Query: </h5> <h2> {query} </h2> <h5> is searching for semantic scholar.\n")
+                #Semantic Scholar による論文の保存
+                #良い論文の100件の取得
+                papers, total = get_papers(query, total_limit=total_limit)
 
         #config への保存
         st.session_state['papers'] = papers
@@ -217,8 +222,12 @@ def app():
             save_papers_dataframe(st.session_state['papers_df'], encode_to_filename(query))
 
             display_spaces(2)
-            display_description(f"Retrieval of papers from Semantic Scholar has been completed.")
-            display_description(f"{len(st.session_state['papers_df'])} / {total} papers retrieved.")
+            if total:
+                display_description(f"Retrieval of papers from Semantic Scholar has been completed.")
+                display_description(f"{len(st.session_state['papers_df'])} / {total} papers retrieved.")
+            else:
+                display_description(f"Retrieved from Semantic Scholar stored in database.")
+                display_description(f"Up to {len(st.session_state['papers_df'])} papers are available for review.")
 
 
     #すでに papers のデータフレームがあれば、それを表示する。
@@ -308,7 +317,7 @@ def app():
     # 特定のクラスターについて,  nodeをすべて取り出す
     # 取り出した node を持つ列について、
 
-    if 'cluster_candidates' in st.session_state:
+    if 'cluster_candidates' in st.session_state and 'H' in st.session_state and 'G' in st.session_state and 'cluster_id_to_paper_ids' in st.session_state and 'partition' in st.session_state:
 
         selected_number = st.selectbox('Please select the ID of cluster to get more information.', st.session_state['cluster_candidates'])
         display_spaces(2)
@@ -327,7 +336,7 @@ def app():
 
     #特定のクラスターによる草稿の編集
 
-    if 'selected_number' in st.session_state and 'cluster_df_detail' in st.session_state:
+    if 'selected_number' in st.session_state and 'cluster_df_detail' in st.session_state and 'number_of_cluster_review_papers' in st.session_state and 'query' in st.session_state:
         display_spaces(2)
         display_description(f'Editing of drafts by AI and selected clusters {st.session_state["selected_number"]}', size=2)
 
@@ -356,7 +365,7 @@ def app():
 
 
 
-    if 'cluster_response' in st.session_state and 'cluster_references_list' in st.session_state and 'cluster_reference_titles':
+    if 'cluster_response' in st.session_state and 'cluster_references_list' in st.session_state and 'cluster_reference_titles' in st.session_state and 'selected_number' in st.session_state:
         display_description(st.session_state['cluster_response'])
 
         if len(st.session_state['cluster_references_list']) > 0:
