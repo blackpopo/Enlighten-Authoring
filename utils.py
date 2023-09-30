@@ -1,6 +1,7 @@
 import requests
 import os
 from time import sleep
+import tiktoken
 
 
 current_dir = os.path.abspath(os.path.dirname(__file__))
@@ -22,6 +23,21 @@ SEMANTICSCHOLAR_API_KEY = st.secrets['SEMANTICSCHOLAR_API_KEY']
     
 openai.api_key = OPENAI_API_KEY
 
+def tiktoken_setup(offset = 8):
+    gpt_35_tiktoken = tiktoken.encoding_for_model("gpt-3.5-turbo")
+    gpt_35_16k_tiktoken = tiktoken.encoding_for_model("gpt-3.5-turbo-16k")
+    gpt_4_tiktoken = tiktoken.encoding_for_model("gpt-4")
+    gpt_4_32k_tiktoken = tiktoken.encoding_for_model("gpt-4-32k")
+
+    tiktoken_dict = {
+        "gpt-3.5-turbo": (gpt_35_tiktoken, 4097 - offset),
+        "gpt-3.5-turbo-16k": (gpt_35_16k_tiktoken, 16385 - offset),
+        "gpt-4": (gpt_4_tiktoken, 8192 - offset),
+        "gpt-4-32k": (gpt_4_32k_tiktoken, 32768 - offset),
+    }
+    return tiktoken_dict
+
+tiktoken_dict = tiktoken_setup()
 
 def get_gpt_response(system_input, model = "gpt-4"):
     print(f'prompt\n {system_input}')
@@ -235,19 +251,51 @@ def to_dataframe(source, drop_list = [ 'title', 'abstract']):
         source.reset_index(drop=True, inplace=True)
     return source
 
-def topk_review_papers(papers_df, query_text, topk=20):
+# def topk_review_papers(papers_df, query_text, topk=20):
+#     _papers_df = papers_df.head(topk)
+#     texts = []
+#     for i, (title, abstract) in enumerate(zip(_papers_df["title"], _papers_df["abstract"]), 1):
+#         text = f"[{i}] {title} - {abstract}"
+#         texts.append(text)
+#
+#     full_text = "\n\n".join(texts)
+#
+#     # アブストラクトをもとに要約を生成する指示を出す
+#     prompt = f"""Academic abstracts: \n\n {full_text} \n\n Instructions: Using the provided academic abstracts, write a comprehensive description about the given query by synthesizing these OBJECTIVE. Make sure to cite results using [number] notation after the sentence. If the provided search results refer to multiple subjects with the same name, write separate answers for each subject.\n\nQuery: {query_text}"""
+#     gpt_response = get_gpt_response(prompt, 'gpt-3.5-turbo-16k')
+#     return gpt_response
+
+def is_valid_tiktoken(model_name, prompt):
+    model, limit = tiktoken_dict[model_name]
+    tokens = model.encode(prompt)
+    if len(tokens) < limit:
+        return True
+    else:
+        return False
+
+#tiktoken版
+def topk_review_generate_prompt(abstracts, query_text):
+    abstracts_text = "\n\n".join(abstracts)
+    prompt = f"""Academic abstracts: \n\n {abstracts_text} \n\n Instructions: Using the provided academic abstracts, write a comprehensive description about the given query by synthesizing these OBJECTIVE. Make sure to cite results using [number] notation after the sentence. If the provided search results refer to multiple subjects with the same name, write separate answers for each subject.\n\nQuery: {query_text}"""
+    return prompt
+
+def topk_review_papers(papers_df, query_text, model='gpt3.5-turbo-16k', topk=20):
+    abstracts = []
     _papers_df = papers_df.head(topk)
-    texts = []
+    caption = "All papers were used to generate the review. "
+
     for i, (title, abstract) in enumerate(zip(_papers_df["title"], _papers_df["abstract"]), 1):
         text = f"[{i}] {title} - {abstract}"
-        texts.append(text)
+        abstracts.append(text)
+        prompt = topk_review_generate_prompt(abstracts, query_text)
 
-    full_text = "\n\n".join(texts)
+        if not is_valid_tiktoken(model, prompt):
+            prompt = topk_review_generate_prompt(abstracts[:-1], query_text)
+            caption = f"{i -1 } / {topk} papers were used to generate the review. "
+            break
+    gpt_response = get_gpt_response(prompt, model)
+    return gpt_response, caption
 
-    # アブストラクトをもとに要約を生成する指示を出す
-    prompt = f"""Academic abstracts: \n\n {full_text} \n\n Instructions: Using the provided academic abstracts, write a comprehensive description about the given query by synthesizing these OBJECTIVE. Make sure to cite results using [number] notation after the sentence. If the provided search results refer to multiple subjects with the same name, write separate answers for each subject.\n\nQuery: {query_text}"""
-    gpt_response = get_gpt_response(prompt, 'gpt-3.5-turbo-16k')
-    return gpt_response
 
 
 def get_cluster_papers(H, G, cluster_nodes):
@@ -268,17 +316,55 @@ def get_cluster_papers(H, G, cluster_nodes):
     df_centrality = df_centrality.sort_values('DegreeCentrality', ascending=False)
     return df_centrality
 
-def title_review_papers(papers, query_text):
-    texts = []
-    titles = []
-    for i, (title, abstract) in enumerate(zip(papers["title"], papers["abstract"]), 1):
-        text = f"[{i}] {title}\n{abstract}"
-        texts.append(text)
-        titles.append(f'[{i}] {title}')
+# def title_review_papers(papers, query_text, language="English"):
+#     texts = []
+#     titles = []
+#     for i, (title, abstract) in enumerate(zip(papers["title"], papers["abstract"]), 1):
+#         text = f"[{i}] {title}\n{abstract}"
+#         texts.append(text)
+#         titles.append(f'[{i}] {title}')
+#
+#     full_cluster_text = "\n\n".join(texts)
+#
+#     if language == '日本語':
+#         language_prompt = "Output in Japanese.\n\n"
+#     else:
+#         language_prompt = ""
+#
+#     prompt = f"""Academic abstracts: \n\n {full_cluster_text}
+#                 Instructions: These Abstracts are the most frequently referenced references in the literature and are assumed to provide background or theoretical perspectives.
+#                 It is assumed that the smaller numbered papers are basic references that are referenced more often in the field, and that as the number increases, they become more closely related to a particular field (in this case, query).
+#                 Note that the literature review will be structured so that the discussion begins with an understanding of the basic literature and then evolves to something closer to the query.
+#                 Do three tasks:
+#                 Task1: Write literature review of these abstract.
+#                 Task2: What are the unsolved problems in this relm?
+#                 Task3: Point out implication to {query_text}.
+#                 Do not use prior knowledge or your own assumptions.
+#                 Make sure to cite results using [number] notation after the sentence.
+#                 {language_prompt}
+#
+#                 ## Summary ##
+#
+#                 ## Unsolved problems ##
+#
+#                 ## Implication ##
+#
+#                 """
+#
+#
+#     cluster_summary = get_gpt_response(prompt, 'gpt-3.5-turbo-16k')
+#     return cluster_summary, titles
 
-    full_cluster_text = "\n\n".join(texts)
 
-    prompt = f"""Academic abstracts: \n\n {full_cluster_text} 
+def title_review_generate_prompt(abstracts, query_text, language):
+    if language == '日本語':
+        language_prompt = "Output in Japanese.\n\n"
+    else:
+        language_prompt = ""
+
+    abstracts_text = "\n\n".join(abstracts)
+
+    prompt = f"""Academic abstracts: \n\n {abstracts_text} 
                 Instructions: These Abstracts are the most frequently referenced references in the literature and are assumed to provide background or theoretical perspectives. 
                 It is assumed that the smaller numbered papers are basic references that are referenced more often in the field, and that as the number increases, they become more closely related to a particular field (in this case, query). 
                 Note that the literature review will be structured so that the discussion begins with an understanding of the basic literature and then evolves to something closer to the query.
@@ -288,6 +374,7 @@ def title_review_papers(papers, query_text):
                 Task3: Point out implication to {query_text}.
                 Do not use prior knowledge or your own assumptions.
                 Make sure to cite results using [number] notation after the sentence.
+                {language_prompt}
 
                 ## Summary ##
 
@@ -296,27 +383,69 @@ def title_review_papers(papers, query_text):
                 ## Implication ##
 
                 """
+    return prompt
 
-    cluster_summary = get_gpt_response(prompt, 'gpt-3.5-turbo-16k')
-    return cluster_summary, titles
+def title_review_papers(papers, query_text, model = 'gpt-3.5-turbo-16k', language="English"):
+    abstracts = []
+    titles = []
+    prompt = title_review_generate_prompt([], query_text, language)
+    caption = f"All papers were used to generate the review. "
+    for i, (title, abstract) in enumerate(zip(papers["title"], papers["abstract"]), 1):
+        text = f"[{i}] {title}\n{abstract}"
+        abstracts.append(text)
+        titles.append(f'[{i}] {title}')
 
-def summery_writer_with_draft(cluster_summary, draft, references):
+        prompt = title_review_generate_prompt(abstracts, query_text, language)
+        if not is_valid_tiktoken(model, prompt):
+            prompt = topk_review_generate_prompt(abstracts[:-1], query_text)
+            caption = f"{i - 1} / {len(papers)} papers were used to generate the review. "
+            break
+    cluster_summary = get_gpt_response(prompt, model)
+    return cluster_summary, titles, caption
 
-    references_prompt = "\n".join(references)
+
+def summary_writer_generate_prompt(references, cluster_summary, draft, language):
+    if language == '日本語':
+        language_prompt = "Output in Japanese.\n\n"
+    else:
+        language_prompt = ""
+
+    references_text = "\n\n".join(references)
+
     prompt = f"""Specific summary: \n\n 
                 {cluster_summary}\n\n 
-                
+
                 References:\n\n
-                {references_prompt}\n\n
-                
+                {references_text}\n\n
+
                 Instructions: Using the provided academic summaries, write a comprehensive long description about the given draft by synthesizing these summaries. 
                 Make sure to cite results using [number] notation after the sentence. If the provided search results refer to multiple subjects with the same name, 
                 write separate answers for each subject.\n\n
-                
+
+                {language_prompt}
+
                 Draft: {draft}"""
+    return prompt
+def summery_writer_with_draft(cluster_summary, draft, references, model = 'gpt-3.5-turbo-16k',language="English"):
+    prompt = summary_writer_generate_prompt([], cluster_summary, "", language)
+    if not is_valid_tiktoken( model, prompt):
+        return "Cluster summary exceeds the AI characters limit. Please regenerate your cluster summary."
+
+    prompt = summary_writer_generate_prompt([], cluster_summary, draft, language)
+    if not is_valid_tiktoken( model, prompt):
+        return "Your draft exceeds the AI characters limit. Please shorten the length of your draft."
+
+
+    caption = "All papers were used to generate the review. "
+    for i in range(len(references)):
+        prompt = summary_writer_generate_prompt(references[:i+1], cluster_summary, draft, language)
+        if not is_valid_tiktoken(model, prompt):
+            prompt = summary_writer_generate_prompt(references[:i], cluster_summary, draft, language)
+            caption = f"{i -1 } / {len(references)} papers were used to generate the review. "
+            break
 
     summary = get_gpt_response(prompt, 'gpt-3.5-turbo-16k')
-    return summary
+    return summary, caption
 
 # DiGraphの初期化
 

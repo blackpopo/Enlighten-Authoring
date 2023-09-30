@@ -115,6 +115,14 @@ def display_references_list(references_list, size=7):
                 unsafe_allow_html=True,
             )
 
+def display_language_toggle(unique_string):
+    toggle = st.radio(
+        f"Select the language for {unique_string}.",
+        ['English', '日本語']
+    )
+    return toggle
+
+
 def get_session_info():
     # get session info
     session = requests.get("http://ip-api.com/json").json()
@@ -241,12 +249,17 @@ def app():
         display_spaces(2)
         display_description("Generate the Review of articles by AI based on Semantic Scholar search results.", 3)
 
-        st.session_state['number_of_review_papers'] = st.number_input(f"From 1 to {min(100, len(st.session_state['papers_df']))} papers are available.",
+        st.session_state['number_of_review_papers'] = st.slider(f"From 1 to {min(100, len(st.session_state['papers_df']))} papers are available.",
                                                                       min_value=1, value=20,  max_value=min(100, len(st.session_state['papers_df'])), step=1)
+
+        toggle = display_language_toggle(f'top {st.session_state["number_of_review_papers"]} review')
+
         topk_review_button = st.button(f"Generate the review using the top {st.session_state['number_of_review_papers']} search results (Not necessary).",)
         if topk_review_button:
             with st.spinner("⏳ Currently working on the review using AI. Please wait..."):
-                response, titles = title_review_papers(st.session_state['papers_df'][:st.session_state['number_of_review_papers']], st.session_state['query'])
+                response, titles, caption = title_review_papers(st.session_state['papers_df'][:st.session_state['number_of_review_papers']], st.session_state['query'], model = 'gpt-3.5-turbo-16k', language=toggle)
+                display_description(caption)
+                display_spaces(1)
                 display_description("Generated Review", size=3)
                 display_list(response.replace('#', '').split('\n'), size=8)
 
@@ -336,16 +349,19 @@ def app():
 
     #特定のクラスターによる草稿の編集
 
-    if 'selected_number' in st.session_state and 'cluster_df_detail' in st.session_state and 'number_of_cluster_review_papers' in st.session_state and 'query' in st.session_state:
+    if 'selected_number' in st.session_state and 'cluster_df_detail' in st.session_state and 'query' in st.session_state:
         display_spaces(2)
-        display_description(f'Editing of drafts by AI and selected clusters {st.session_state["selected_number"]}', size=2)
+        display_description(f'Editing of drafts by AI and selected cluster {st.session_state["selected_number"]}', size=2)
 
         selected_number = st.session_state['selected_number']
         cluster_df_detail = st.session_state['cluster_df_detail']
 
-        st.session_state['number_of_cluster_review_papers'] = st.number_input(f"Number of cluster {selected_number} papers used for editing from 1 to {len(cluster_df_detail)}", min_value=1,
+        st.session_state['number_of_cluster_review_papers'] = st.slider(f"Number of cluster {selected_number} papers used for editing from 1 to {len(cluster_df_detail)}", min_value=1,
                                                                       value=min(len(cluster_df_detail), 20),
                                                                       max_value=min(100, len(cluster_df_detail)), step=1)
+
+        toggle = display_language_toggle(f"cluster {st.session_state['selected_number']} review")
+
         #クラスタリングの結果のレビュー
         selected_review_button = st.button(f"Generate the review using the top {st.session_state['number_of_cluster_review_papers']} papers. This may take some time.", )
 
@@ -354,7 +370,9 @@ def app():
                 selected_cluster_paper_ids = cluster_df_detail['Node'].values.tolist()[:st.session_state['number_of_cluster_review_papers']]
                 result_list, result_dict = get_papers_from_ids(selected_cluster_paper_ids)
                 selected_papers = pd.DataFrame(result_dict)
-                cluster_response, reference_titles = title_review_papers(selected_papers, st.session_state['query'])
+                cluster_response, reference_titles, caption = title_review_papers(selected_papers, st.session_state['query'], model = 'gpt-3.5-turbo-16k', language=toggle)
+                display_description(caption)
+                display_spaces(1)
                 st.session_state['cluster_response'] = cluster_response
                 st.session_state['cluster_reference_titles'] = reference_titles
 
@@ -377,11 +395,15 @@ def app():
         display_description('Please enter a draft of your paper in the input field', 3)
         draft_text = st.text_input(label='review draft input filed.', placeholder='Past your draft of review here!', label_visibility='hidden')
 
+        toggle = display_language_toggle(f"review draft")
+
         write_summary_button = st.button(f"Generate the re-edited version of your draft using the Cluster {st.session_state['selected_number']} review. This may take some time.", )
 
         if write_summary_button and len(draft_text) > 0:
             with st.spinner("⏳ Generating the re-edited version of your draft with AI..."):
-                summary_response = summery_writer_with_draft(st.session_state['cluster_response'], draft_text, st.session_state['cluster_references_list'])
+                summary_response, caption = summery_writer_with_draft(st.session_state['cluster_response'], draft_text, st.session_state['cluster_references_list'], model = 'gpt-3.5-turbo-16k', language=toggle)
+                display_description(caption)
+                display_spaces(1)
 
                 st.session_state['summary_response'] = summary_response
 
