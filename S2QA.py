@@ -189,7 +189,7 @@ def app():
     st.session_state['query'] = query
 
     # Add the button to the empty container
-    get_papers_button = st.button("Search Papers from Semantic Scholar", type='primary')
+    get_papers_button = st.button("Search Papers from Semantic Scholar")
 
     display_spaces(1)
 
@@ -197,15 +197,10 @@ def app():
     if query and get_papers_button:
         total_limit = 100
         with st.spinner("⏳ Getting papers from semantic scholar..."):
-            if os.path.exists(os.path.join(data_folder, f"{safe_filename(encode_to_filename(query))}.csv")):
-                display_description(f"Query: </h5> <h2> {query} </h2> <h5> is already searched before.\n")
-                papers = load_papers_dataframe(encode_to_filename(query))
-                total = None
-            else:
-                display_description(f"Query: </h5> <h2> {query} </h2> <h5> is searching for semantic scholar.\n")
-                #Semantic Scholar による論文の保存
-                #良い論文の100件の取得
-                papers, total = get_papers(query, total_limit=total_limit)
+            display_description(f"Query: </h5> <h2> {query} </h2> <h5> is searching for semantic scholar.\n")
+            #Semantic Scholar による論文の保存
+            #良い論文の100件の取得
+            papers, total = get_papers(query, total_limit=total_limit)
 
         #config への保存
         st.session_state['papers'] = papers
@@ -222,12 +217,8 @@ def app():
             save_papers_dataframe(st.session_state['papers_df'], encode_to_filename(query))
 
             display_spaces(2)
-            if total:
-                display_description(f"Retrieval of papers from Semantic Scholar has been completed.")
-                display_description(f"{len(st.session_state['papers_df'])} / {total} papers retrieved.")
-            else:
-                display_description(f"Retrieved from Semantic Scholar stored in database.")
-                display_description(f"Up to {len(st.session_state['papers_df'])} papers are available for review.")
+            display_description(f"Retrieval of papers from Semantic Scholar has been completed.")
+            display_description(f"{len(st.session_state['papers_df'])} / {total} papers retrieved.")
 
 
     #すでに papers のデータフレームがあれば、それを表示する。
@@ -371,6 +362,7 @@ def app():
         if len(st.session_state['cluster_references_list']) > 0:
             display_description('References', size=6)
             display_references_list(st.session_state['cluster_references_list'])
+
         #終了時にドラフトを入力できるようにする
         display_spaces(2)
         display_description('Please enter a draft of your paper in the input field', 3)
@@ -385,7 +377,6 @@ def app():
                 st.session_state['summary_response'] = summary_response
 
                 reference_indices = extract_reference_indices(summary_response)
-                print(reference_indices)
                 references_list = [reference_text for i, reference_text in enumerate(st.session_state['cluster_reference_titles']) if
                                    i in reference_indices]
                 st.session_state['summary_references_list'] = references_list
