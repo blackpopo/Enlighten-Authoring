@@ -54,7 +54,7 @@ def get_gpt_response2(system_input, user_input, model = "gpt-3.5-turbo-16k"):
     response = openai.ChatCompletion.create(
         model= model,
         messages=[
-          {"role": "system", "content": system_input},
+           {"role": "system", "content": system_input},
             {"role": "user", "content" : user_input}
         ],
     )
@@ -109,8 +109,9 @@ def get_papers(query_text, offset = 0, limit = 100, total_limit = 1000):
   # 最初の結果セットを取得
   # _get_papersはエラーが発生した場合 None を返す
   result = _get_papers(query_text, offset, limit, fields=fields)
-  if not result:
+  if not result or result['total'] == 0:
     return [], 0
+
 
   papers.extend(result['data'])
   print(f"Total results is {result['total']}.")
@@ -129,6 +130,39 @@ def get_papers(query_text, offset = 0, limit = 100, total_limit = 1000):
       papers.extend(result['data'])
   return papers, result['total']
 
+
+def get_all_papers_from_references(papers):
+    all_papers = papers.copy()
+    all_papers.drop(columns=['references'], inplace=True)
+
+    # 空のDataFrameを作成して、reference情報を格納する
+    reference_df_list = []
+    for index, row in papers.iterrows():
+        references = row['references']
+        if references:
+            for reference in references:
+                ref_dict = {'paperId': row['paperId']}
+                ref_dict.update(reference)
+                reference_df_list.append(ref_dict)
+
+    reference_df = pd.DataFrame(reference_df_list)
+
+    # 同じ 'paperId' を持つ行を合成
+    all_papers.set_index('paperId', inplace=True)
+    reference_df.set_index('paperId', inplace=True)
+    all_papers = all_papers.combine_first(reference_df)
+
+    # 重複する行を削除
+    all_papers.reset_index(inplace=True)
+    all_papers.drop_duplicates(subset=['paperId'], inplace=True)
+    all_papers.set_index('paperId', inplace=True)
+
+    if 'Unnamed: 0' in all_papers.columns:
+        all_papers.drop(columns=['Unnamed: 0'], inplace=True)
+    if 'embedding' in all_papers.columns:
+        all_papers.drop(columns=['embedding'], inplace=True)
+
+    return all_papers
 #論文 id のリストにもとづいて、Semantic Scholar から論文を offset を始めとして、 limit 分取得する。
 def _get_papers_from_ids(paper_ids, fields):
     base_url = 'https://api.semanticscholar.org/graph/v1/paper/batch'
@@ -227,20 +261,27 @@ def safe_filename(filename):
 
     return safe_name
 
+def encode_to_filename(s):
+    return s.replace(" ", "_").replace("\"", "__dq__")
+
+def decode_from_filename(filename):
+    return filename.replace(".csv", "").replace('__dq__', '\"').replace("_", " ")
+
 def save_papers_dataframe(df, query_text):
-    file_name = safe_filename(query_text)
+    encoded_query_text_without_extension = encode_to_filename(query_text)
+    file_name = safe_filename(encoded_query_text_without_extension)
     df.to_csv(os.path.join(data_folder, f'{file_name}.csv'), encoding='utf-8')
 
 
-def load_papers_dataframe(query_text):
-    file_name = safe_filename(query_text)
+def load_papers_dataframe(query_text, literal_evals = ['references', 'authors', 'embedding'], dropna_list = ['embedding', 'title', 'abstract']):
+    encoded_query_text_without_extension = encode_to_filename(query_text)
+    file_name = safe_filename(encoded_query_text_without_extension)
     papers = pd.read_csv(os.path.join(data_folder, f'{file_name}.csv'))
-    papers.dropna(subset=['embedding', 'title', 'abstract'], inplace=True)
+    papers.dropna(subset=dropna_list, inplace=True)
     papers.reset_index(drop=True, inplace=True)
 
-    papers['references'] = papers['references'].apply(ast.literal_eval)  # jsonの読み込み
-    papers['authors'] = papers['authors'].apply(ast.literal_eval)
-    papers['embedding'] = papers['embedding'].apply(ast.literal_eval)
+    for literal_eval_value in literal_evals:
+        papers[literal_eval_value] = papers[literal_eval_value].apply(ast.literal_eval)  # jsonの読み込み
 
     return  papers
 
@@ -251,19 +292,7 @@ def to_dataframe(source, drop_list = [ 'title', 'abstract']):
         source.reset_index(drop=True, inplace=True)
     return source
 
-# def topk_review_papers(papers_df, query_text, topk=20):
-#     _papers_df = papers_df.head(topk)
-#     texts = []
-#     for i, (title, abstract) in enumerate(zip(_papers_df["title"], _papers_df["abstract"]), 1):
-#         text = f"[{i}] {title} - {abstract}"
-#         texts.append(text)
-#
-#     full_text = "\n\n".join(texts)
-#
-#     # アブストラクトをもとに要約を生成する指示を出す
-#     prompt = f"""Academic abstracts: \n\n {full_text} \n\n Instructions: Using the provided academic abstracts, write a comprehensive description about the given query by synthesizing these OBJECTIVE. Make sure to cite results using [number] notation after the sentence. If the provided search results refer to multiple subjects with the same name, write separate answers for each subject.\n\nQuery: {query_text}"""
-#     gpt_response = get_gpt_response(prompt, 'gpt-3.5-turbo-16k')
-#     return gpt_response
+
 
 def is_valid_tiktoken(model_name, prompt):
     model, limit = tiktoken_dict[model_name]
@@ -316,83 +345,51 @@ def get_cluster_papers(H, G, cluster_nodes):
     df_centrality = df_centrality.sort_values('DegreeCentrality', ascending=False)
     return df_centrality
 
-# def title_review_papers(papers, query_text, language="English"):
-#     texts = []
-#     titles = []
-#     for i, (title, abstract) in enumerate(zip(papers["title"], papers["abstract"]), 1):
-#         text = f"[{i}] {title}\n{abstract}"
-#         texts.append(text)
-#         titles.append(f'[{i}] {title}')
-#
-#     full_cluster_text = "\n\n".join(texts)
-#
-#     if language == '日本語':
-#         language_prompt = "Output in Japanese.\n\n"
-#     else:
-#         language_prompt = ""
-#
-#     prompt = f"""Academic abstracts: \n\n {full_cluster_text}
-#                 Instructions: These Abstracts are the most frequently referenced references in the literature and are assumed to provide background or theoretical perspectives.
-#                 It is assumed that the smaller numbered papers are basic references that are referenced more often in the field, and that as the number increases, they become more closely related to a particular field (in this case, query).
-#                 Note that the literature review will be structured so that the discussion begins with an understanding of the basic literature and then evolves to something closer to the query.
-#                 Do three tasks:
-#                 Task1: Write literature review of these abstract.
-#                 Task2: What are the unsolved problems in this relm?
-#                 Task3: Point out implication to {query_text}.
-#                 Do not use prior knowledge or your own assumptions.
-#                 Make sure to cite results using [number] notation after the sentence.
-#                 {language_prompt}
-#
-#                 ## Summary ##
-#
-#                 ## Unsolved problems ##
-#
-#                 ## Implication ##
-#
-#                 """
-#
-#
-#     cluster_summary = get_gpt_response(prompt, 'gpt-3.5-turbo-16k')
-#     return cluster_summary, titles
-
 
 def title_review_generate_prompt(abstracts, query_text, language):
     if language == '日本語':
-        language_prompt = "Output in Japanese.\n\n"
+        language_prompt = "Reply in Japanese, "
     else:
         language_prompt = ""
 
     abstracts_text = "\n\n".join(abstracts)
 
+    # Query:\n\n{query_text}を Academic Abstracts のあとに入れる？
     prompt = f"""Academic abstracts: \n\n {abstracts_text} 
-                Instructions: These Abstracts are the most frequently referenced references in the literature and are assumed to provide background or theoretical perspectives. 
-                It is assumed that the smaller numbered papers are basic references that are referenced more often in the field, and that as the number increases, they become more closely related to a particular field (in this case, query). 
+                Instructions: These Abstracts are the most frequently referenced references in the literature and are assumed to provide background or theoretical perspectives.
+                It is assumed that the smaller numbered papers are basic references that are referenced more often in the field, and that as the number increases, they become more closely related to a particular field (in this case, query).
                 Note that the literature review will be structured so that the discussion begins with an understanding of the basic literature and then evolves to something closer to the query.
                 Do three tasks:
-                Task1: Write literature review of these abstract. 
-                Task2: What are the unsolved problems in this relm?
-                Task3: Point out implication to {query_text}.
+                Task1: Write literature review of these abstract using all references.
+                Task2: Discuss the latest developments in 5 years, specifying the publication year information in (published in ).
+                Task3: What are the unmet medical needs in this relm in detail?
+                Task4: What treatment methods are currently employed in detail?
                 Do not use prior knowledge or your own assumptions.
+                {language_prompt}
                 Make sure to cite results using [number] notation after the sentence.
-
 
                 ## Summary ##
 
-                ## Unsolved problems ##
+                ## Latest developments ##
 
-                ## Implication ##
-                
-                {language_prompt}
+                ## Unmet medical needs ##
+
+                ## Treatments ##
+
+                {language_prompt} write as long as possible.
                 """
+
     return prompt
 
+
+#ここで，
 def title_review_papers(papers, query_text, model = 'gpt-3.5-turbo-16k', language="English"):
     abstracts = []
     titles = []
     prompt = title_review_generate_prompt([], query_text, language)
     caption = f"All papers were used to generate the review. "
-    for i, (title, abstract) in enumerate(zip(papers["title"], papers["abstract"]), 1):
-        text = f"[{i}] {title}\n{abstract}"
+    for i, (title, abstract, year) in enumerate(zip(papers["title"], papers["abstract"], papers['year']), 1):
+        text = f"[{i}] (Published in {year}) {title}\n{abstract}"
         abstracts.append(text)
         titles.append(f'[{i}] {title}')
 
