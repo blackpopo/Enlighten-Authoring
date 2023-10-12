@@ -56,6 +56,7 @@ def display_dataframe_detail(df, title, topk):
     df['journal name'] = df['journal'].apply(get_journal_name)
     df['author names'] = df['authors'].apply(lambda x: [d.get('name') for d in x] if isinstance(x, list) else None)
     df['citation count'] = df['citationCount']
+    df['published year'] = df['year']
     df = df[['title', 'abstract', 'published year', 'citation count', 'journal name', 'author names']]
     st.dataframe(df.head(topk), hide_index=True)
 
@@ -243,8 +244,6 @@ def app():
                     papers_df = to_dataframe(st.session_state['papers'])
                     #all_papersへの入力はdataframe
                     all_papers_df = get_all_papers_from_references(papers_df)
-                else:
-                    papers_df, all_papers_df = pd.DataFrame.empty, pd.DataFrame.empty
 
         #検索結果がなかった場合に以前のデータフレームの削除．
         if 'papers' in st.session_state and len(st.session_state['papers']) == 0:
@@ -254,8 +253,8 @@ def app():
 
         #csvの保存
         if not os.path.exists(os.path.join(data_folder, f"{safe_filename(encode_to_filename(query))}.csv")):
-            save_papers_dataframe(st.session_state['papers_df'], query)
-            save_papers_dataframe(st.session_state['all_papers_df'], query + '_all' )
+            save_papers_dataframe(papers_df, query)
+            save_papers_dataframe(all_papers_df, query + '_all' )
             papers_df = load_papers_dataframe(query)
             all_papers_df = load_papers_dataframe(query + '_all', ['authors'], ['title', 'abstract', 'year'])
 
@@ -340,7 +339,8 @@ def app():
             display_description("Graph construction failed, please try again from the Semantic Scholar search.")
             st.session_state.pop('H')
 
-
+    if 'papers_df' in st.session_state and len(st.session_state['papers_df']) == 0:
+        st.experimental_rerun()
 
     #cluster_df の構築
     if 'H' in st.session_state:
