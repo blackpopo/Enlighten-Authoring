@@ -399,7 +399,7 @@ def app():
 
         temp_cluster_df_detail =  matched_papers_df.rename(columns={'DegreeCentrality': "Importance"})
         temp_cluster_df_detail.index.name = 'Paper ID'
-        print(temp_cluster_df_detail.columns)
+        temp_cluster_df_detail = temp_cluster_df_detail.sort_values('Importance', ascending=False)
         display_cluster_dataframe(temp_cluster_df_detail, f'More information about the top 20 papers in Cluster ID {selected_number}.', 20)
 
         display_spaces(2)
