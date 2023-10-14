@@ -301,7 +301,7 @@ def app():
         topk_review_button = st.button(f"Generate the review using the top {st.session_state['number_of_review_papers']} search results (Not necessary).",)
         if topk_review_button:
             with st.spinner("⏳ Currently working on the review using AI. Please wait..."):
-                response, titles, caption = title_review_papers(st.session_state['papers_df'][:st.session_state['number_of_review_papers']], st.session_state['query'], model = 'gpt-3.5-turbo-16k', language=toggle)
+                response, titles, caption = title_review_papers(st.session_state['papers_df'][:st.session_state['number_of_review_papers']], st.session_state['query'], model = 'gpt-4-32k', language=toggle)
                 st.session_state['topk_review_caption'] = caption
                 st.session_state['topk_review_response'] = response
                 st.session_state['topk_review_titles'] = titles
@@ -432,7 +432,7 @@ def app():
                 selected_cluster_paper_ids = cluster_df_detail['Node'].values.tolist()[:st.session_state['number_of_cluster_review_papers']]
                 result_list, result_dict = get_papers_from_ids(selected_cluster_paper_ids)
                 selected_papers = pd.DataFrame(result_dict)
-                cluster_response, reference_titles, caption = title_review_papers(selected_papers, st.session_state['query'], model = 'gpt-3.5-turbo-16k', language=toggle)
+                cluster_response, reference_titles, caption = title_review_papers(selected_papers, st.session_state['query'], model = 'gpt-4-32k', language=toggle)
 
                 display_description(caption)
                 display_spaces(1)
@@ -465,7 +465,7 @@ def app():
 
         if write_summary_button and len(draft_text) > 0:
             with st.spinner("⏳ Generating the re-edited version of your draft with AI..."):
-                summary_response, caption = summery_writer_with_draft(st.session_state['cluster_response'], draft_text, st.session_state['cluster_references_list'], model = 'gpt-3.5-turbo-16k', language=toggle)
+                summary_response, caption = summery_writer_with_draft(st.session_state['cluster_response'], draft_text, st.session_state['cluster_references_list'], model = 'gpt-4-32k', language=toggle)
                 display_description(caption)
                 display_spaces(1)
 

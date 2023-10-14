@@ -17,21 +17,30 @@ import plotly.graph_objects as go
 import networkx as nx
 import openai
 import streamlit as st
+
+
 OPENAI_API_KEY = st.secrets['OPENAI_API_KEY']
 DEEPL_API_KEY = st.secrets['DEEPL_API_KEY']
 SEMANTICSCHOLAR_API_KEY = st.secrets['SEMANTICSCHOLAR_API_KEY']
+AZURE_OPENAI_API_KEY = st.secrets['AZURE_OPENAI_KEY']
+AZURE_OPENAI_ENDPOINT = st.secrets['AZURE_OPENAI_ENDPOINT']
     
-openai.api_key = OPENAI_API_KEY
+# openai.api_key = OPENAI_API_KEY
+openai.api_key = AZURE_OPENAI_API_KEY
+openai.api_base = AZURE_OPENAI_ENDPOINT
+openai.api_type = 'azure'
+openai.api_version = '2023-05-15'
+
 
 def tiktoken_setup(offset = 8):
     gpt_35_tiktoken = tiktoken.encoding_for_model("gpt-3.5-turbo")
-    gpt_35_16k_tiktoken = tiktoken.encoding_for_model("gpt-3.5-turbo-16k")
+    gpt_35_16k_tiktoken = tiktoken.encoding_for_model("gpt-4-32k")
     gpt_4_tiktoken = tiktoken.encoding_for_model("gpt-4")
     gpt_4_32k_tiktoken = tiktoken.encoding_for_model("gpt-4-32k")
 
     tiktoken_dict = {
         "gpt-3.5-turbo": (gpt_35_tiktoken, 4097 - offset),
-        "gpt-3.5-turbo-16k": (gpt_35_16k_tiktoken, 16385 - offset),
+        "gpt-4-32k": (gpt_35_16k_tiktoken, 16385 - offset),
         "gpt-4": (gpt_4_tiktoken, 8192 - offset),
         "gpt-4-32k": (gpt_4_32k_tiktoken, 32768 - offset),
     }
@@ -39,27 +48,47 @@ def tiktoken_setup(offset = 8):
 
 tiktoken_dict = tiktoken_setup()
 
-def get_gpt_response(system_input, model = "gpt-4"):
-    print(f'prompt\n {system_input}')
+# def get_gpt_response(system_input, model = "gpt-4"):
+#     print(f'prompt\n {system_input}')
+#     response = openai.ChatCompletion.create(
+#         model= model,
+#         messages=[
+#           {"role": "system", "content": system_input},
+#         ],
+#     )
+#     print(response.choices[0]["message"]["content"].strip())
+#     return response.choices[0]["message"]["content"].strip()
+#
+# def get_gpt_response2(system_input, user_input, model = "gpt-4-32k"):
+#     response = openai.ChatCompletion.create(
+#         model= model,
+#         messages=[
+#            {"role": "system", "content": system_input},
+#             {"role": "user", "content" : user_input}
+#         ],
+#     )
+#     return response.choices[0]["message"]["content"].strip()
+#
+# def get_keywords(user_input):
+#     system_input = "You will be provided with a block of text, and your task is to extract a list of keywords from it. Please output only keywords separated by commas."
+#     try:
+#         gpt_response = get_gpt_response2(system_input, user_input, 'gpt-4-32k')
+#         print(f'gpt response is {gpt_response}')
+#         keywords = gpt_response.split(',')
+#         return keywords
+#     except Exception as e:
+#         print(f'Error happened as {e}')
+#         sleep(5)
+
+def get_azure_gpt_response(system_input, model_name='gpt-4-32k'):
     response = openai.ChatCompletion.create(
-        model= model,
+        engine=model_name,
         messages=[
           {"role": "system", "content": system_input},
         ],
     )
-    print(response.choices[0]["message"]["content"].strip())
-    return response.choices[0]["message"]["content"].strip()
 
-def get_gpt_response2(system_input, user_input, model = "gpt-3.5-turbo-16k"):
-    response = openai.ChatCompletion.create(
-        model= model,
-        messages=[
-           {"role": "system", "content": system_input},
-            {"role": "user", "content" : user_input}
-        ],
-    )
     return response.choices[0]["message"]["content"].strip()
-
 
 #クエリにもとづいて、Semantic Scholar から論文を offset を始めとして、 limit 分取得する。ただし、完全一致の論文のみが送信される。
 def suggest_paper_completions(query):
@@ -232,16 +261,6 @@ def get_papers_from_ids(paper_ids, offset=0, limit=100):
 
     return total_results, total_dict
 
-def get_keywords(user_input):
-    system_input = "You will be provided with a block of text, and your task is to extract a list of keywords from it. Please output only keywords separated by commas."
-    try:
-        gpt_response = get_gpt_response2(system_input, user_input, 'gpt-3.5-turbo-16k')
-        print(f'gpt response is {gpt_response}')
-        keywords = gpt_response.split(',')
-        return keywords
-    except Exception as e:
-        print(f'Error happened as {e}')
-        sleep(5)
 
 def safe_filename(filename):
     """
@@ -312,6 +331,9 @@ def topk_review_papers(papers_df, query_text, model='gpt3.5-turbo-16k', topk=20)
     abstracts = []
     _papers_df = papers_df.head(topk)
     caption = "All papers were used to generate the review. "
+    
+    if len(papers_df) < 1:
+        return "No papers are found to review papers with your query.", "Please search papers again from Semantic Scholar."
 
     for i, (title, abstract) in enumerate(zip(_papers_df["title"], _papers_df["abstract"]), 1):
         text = f"[{i}] {title} - {abstract}"
@@ -322,7 +344,8 @@ def topk_review_papers(papers_df, query_text, model='gpt3.5-turbo-16k', topk=20)
             prompt = topk_review_generate_prompt(abstracts[:-1], query_text)
             caption = f"{i -1 } / {topk} papers were used to generate the review. "
             break
-    gpt_response = get_gpt_response(prompt, model)
+            
+    gpt_response = get_azure_gpt_response(prompt, model)
     return gpt_response, caption
 
 
@@ -383,7 +406,7 @@ def title_review_generate_prompt(abstracts, query_text, language):
 
 
 #ここで，
-def title_review_papers(papers, query_text, model = 'gpt-3.5-turbo-16k', language="English"):
+def title_review_papers(papers, query_text, model = 'gpt-4-32k', language="English"):
     abstracts = []
     titles = []
     prompt = title_review_generate_prompt([], query_text, language)
@@ -398,7 +421,7 @@ def title_review_papers(papers, query_text, model = 'gpt-3.5-turbo-16k', languag
             prompt = topk_review_generate_prompt(abstracts[:-1], query_text)
             caption = f"{i - 1} / {len(papers)} papers were used to generate the review. "
             break
-    cluster_summary = get_gpt_response(prompt, model)
+    cluster_summary = get_azure_gpt_response(prompt, model)
     return cluster_summary, titles, caption
 
 
@@ -425,7 +448,7 @@ def summary_writer_generate_prompt(references, cluster_summary, draft, language)
                 {language_prompt}
                 """
     return prompt
-def summery_writer_with_draft(cluster_summary, draft, references, model = 'gpt-3.5-turbo-16k',language="English"):
+def summery_writer_with_draft(cluster_summary, draft, references, model = 'gpt-4-32k',language="English"):
     prompt = summary_writer_generate_prompt([], cluster_summary, "", language)
     if not is_valid_tiktoken( model, prompt):
         return "Cluster summary exceeds the AI characters limit. Please regenerate your cluster summary."
@@ -443,7 +466,7 @@ def summery_writer_with_draft(cluster_summary, draft, references, model = 'gpt-3
             caption = f"{i -1 } / {len(references)} papers were used to generate the review. "
             break
 
-    summary = get_gpt_response(prompt, 'gpt-3.5-turbo-16k')
+    summary = get_azure_gpt_response(prompt, 'gpt-4-32k')
     return summary, caption
 
 # DiGraphの初期化
