@@ -7,6 +7,8 @@ import json
 import streamlit as st
 import requests
 from collections import defaultdict, namedtuple
+import datetime
+import numpy as np
 
 OPENAI_API_KEY = st.secrets['OPENAI_API_KEY']
 DEEPL_API_KEY = st.secrets['DEEPL_API_KEY']
@@ -35,7 +37,7 @@ def display_cluster_dataframe(df, title, topk):
     df['journal name'] = df['journal'].apply(get_journal_name)
     df['author names'] = df['authors'].apply(lambda x: [d.get('name') for d in x] if isinstance(x, list) else None)
     df['citation count'] = df['citationCount']
-    df['published year'] = df['year']
+    df['published year'] = df['year'].apply(lambda x: str(x).replace('.0', ''))
     df = df[['Title', 'Importance', 'abstract', 'published year', 'citation count', 'journal name', 'author names']]
     st.dataframe(df.head(topk), hide_index=True)
 
@@ -56,7 +58,7 @@ def display_dataframe_detail(df, title, topk):
     df['journal name'] = df['journal'].apply(get_journal_name)
     df['author names'] = df['authors'].apply(lambda x: [d.get('name') for d in x] if isinstance(x, list) else None)
     df['citation count'] = df['citationCount']
-    df['published year'] = df['year']
+    df['published year'] = df['year'].apply(lambda x: str(x).replace('.0', ''))
     df = df[['title', 'abstract', 'published year', 'citation count', 'journal name', 'author names']]
     st.dataframe(df.head(topk), hide_index=True)
 
@@ -102,21 +104,6 @@ def display_error(error_text = 'This is a error text.'):
     )
 
 
-def generate_answer(prompt):
-    """Generates an answer using ChatGPT."""
-    response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        messages=[
-            {
-                "role": "system",
-                "content": "You are a helpful assistant to a researcher. You are helping them write a paper. You are given a prompt and a list of references. You are asked to write a summary of the references if they are related to the question. You should not include any personal opinions or interpretations in your answer, but rather focus on objectively presenting the information from the search results.",
-            },
-            {"role": "user", "content": prompt},
-        ],
-        api_key=OPENAI_API_KEY,
-    )
-    return response.choices[0].message.content
-
 def display_spaces(repeat=1):
     for _ in range(repeat):
         st.markdown("<br>", unsafe_allow_html=True)
@@ -136,6 +123,38 @@ def display_language_toggle(unique_string):
         ['English', '日本語']
     )
     return toggle
+
+def display_cluster_years(df: pd.DataFrame):
+    print(df.columns)
+    display_description("Publication years of papers in the cluster", 4)
+    min_year, max_year, ave_year = df['year'].max(), df['year'].min(), df['year'].mean()
+    min_year, max_year, ave_year = str(min_year).replace('.0', ''), str(max_year).replace('.0', ''), str(ave_year.round(2))
+    current_year = datetime.datetime.now().year
+    recent_5_years_count = df[df['year'] > (current_year - 5)].shape[0]
+    display_description(f"Number of papers published in the last 5 years : {recent_5_years_count}")
+    display_description(f"Newest year: {max_year}    Oldest year：{min_year}    Average year：{ave_year}", 6)
+    # Matplotlib でグラフ作成
+    # 年ごとの論文数を計算
+    paper_count_by_year = df['year'].value_counts().sort_index()
+
+    # 横軸の設定
+    x_ticks = range(int(paper_count_by_year.index.min()), current_year + 1)
+
+    # Matplotlib で折れ線グラフ作成
+    plt.figure(figsize=(12, 6))
+    plt.plot(paper_count_by_year.index, paper_count_by_year.values, color='aqua', marker='o')
+    plt.xlabel('Year')
+    plt.ylabel('Paper Count')
+    plt.xticks(x_ticks, rotation=45)
+    plt.yticks(np.arange(0, paper_count_by_year.values.max() + 1, step=1))
+
+    # グラフの枠線を一番下の線以外消す
+    plt.gca().spines['top'].set_visible(False)
+    plt.gca().spines['right'].set_visible(False)
+    plt.gca().spines['left'].set_visible(False)
+
+    # Streamlit でグラフ表示
+    st.pyplot(plt)
 
 
 def get_session_info():
@@ -167,21 +186,6 @@ def dump_logs(query, response, success=True):
             json.dump(query_details, f)
             f.write("\n")
 
-def get_research_questions(answer):
-    """Generates an answer using ChatGPT."""
-    response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are helpful research visionary, consider the future possibilities and trends in a specific research area. Analyze the current state of the field, advancements in technology, and the potential for growth and development. Offer insights into how the researcher can contribute to this evolving landscape and provide innovative ideas that address challenges or gaps in the field. Inspire the researcher to think outside the box and explore new avenues of research, while also considering ethical, social, and environmental implications. Encourage collaboration and interdisciplinary approaches to maximize the impact of their work and drive the research area towards a promising and sustainable future.",
-                },
-                # {"role": "user", "content": answer },
-                {"role": "user", "content": answer + "\n Instructions: Based on the literature review provided, please generate five detailed research questions for future researchers to explore. Your research questions should build upon the existing knowledge and address gaps or areas that require further investigation. Please provide sufficient context and details for each question."},
-            ],
-            api_key=OPENAI_API_KEY
-            )
-    return response.choices[0].message.content
 
 
 def reset_session(session_state):
@@ -346,9 +350,12 @@ def app():
     if 'H' in st.session_state:
         with st.spinner(f"⏳ Papers are clustered now..."):
             cluster_counts, cluster_df, partition = community_clustering(st.session_state['H'])
+            #クラスターのキーワードを設定する．
+            cluster_df.loc[:, 'clusterKeywords'] = cluster_df['clusterNumber'].apply(lambda cluster_id: calc_tf_idf(st.session_state['G'], partition, cluster_id))
             st.session_state['cluster_counts'] = cluster_counts
             st.session_state['cluster_df'] = cluster_df
             st.session_state['partition'] = partition
+            #Cluster ID から Paper ID のリストを取得するリスト
             cluster_id_paper_ids = defaultdict(list)
             for key, value in partition.items():
                 cluster_id_paper_ids[value].append(key)
@@ -356,7 +363,7 @@ def app():
 
     if 'cluster_df' in st.session_state.keys():
         display_clusters = st.session_state['cluster_df'][st.session_state['cluster_df']['numberOfNodes'] > 10]
-        display_clusters = display_clusters.sort_values('density', ascending=False)
+        display_clusters = display_clusters.sort_values('numberOfNodes', ascending=False)
         cluster_candidates = display_clusters['clusterNumber'].values
 
         display_clusters.set_index('clusterNumber', inplace=True)
@@ -367,9 +374,8 @@ def app():
 
         rename_columns = {
                 'clusterNumber': 'Cluster ID',
-                'netNumberOfNodes': 'Number of Searched Papers in the Cluster',
-                'numberOfNodes' : "Total Number of Papers in the Cluster",
-                'density': "Importance"
+                'numberOfNodes': "Number of Papers",
+                "clusterKeywords" : "Keywords"
             }
         display_clusters.rename(columns= rename_columns, inplace=True)
 
@@ -401,6 +407,9 @@ def app():
         temp_cluster_df_detail.index.name = 'Paper ID'
         temp_cluster_df_detail = temp_cluster_df_detail.sort_values('Importance', ascending=False)
         display_cluster_dataframe(temp_cluster_df_detail, f'More information about the top 20 papers in Cluster ID {selected_number}.', 20)
+
+        #クラスターの年情報の追加
+        display_cluster_years(temp_cluster_df_detail)
 
         display_spaces(2)
         display_description(f'Cluster ID {selected_number} Community Subgraph', size=3)

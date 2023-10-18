@@ -8,7 +8,6 @@ current_dir = os.path.abspath(os.path.dirname(__file__))
 data_folder = os.path.join(current_dir, 'database')
 import re
 import ast
-import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import tqdm
@@ -17,6 +16,7 @@ import plotly.graph_objects as go
 import networkx as nx
 import openai
 import streamlit as st
+from sklearn.feature_extraction.text import TfidfVectorizer
 
 
 OPENAI_API_KEY = st.secrets['OPENAI_API_KEY']
@@ -311,6 +311,52 @@ def to_dataframe(source, drop_list = [ 'title', 'abstract']):
         source.reset_index(drop=True, inplace=True)
     return source
 
+def generate_answer(prompt):
+    """Generates an answer using ChatGPT."""
+
+    prompt = "You are a helpful assistant to a researcher. " \
+             "You are helping them write a paper. " \
+             "You are given a prompt and a list of references. " \
+             "You are asked to write a summary of the references if they are related to the question. " \
+             "You should not include any personal opinions or interpretations in your answer, but rather focus on objectively presenting the information from the search results.",
+    response = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",
+        messages=[
+            {
+                "role": "system",
+                "content": prompt,
+            },
+            {"role": "user", "content": prompt},
+        ],
+        api_key=OPENAI_API_KEY,
+    )
+    return response.choices[0].message.content
+
+def get_research_questions(answer):
+    """Generates an answer using ChatGPT."""
+    system_prompt = "You are helpful research visionary, consider the future possibilities and trends in a specific research area." \
+                    " Analyze the current state of the field, advancements in technology, and the potential for growth and development. " \
+                    "Offer insights into how the researcher can contribute to this evolving landscape and provide innovative ideas that address challenges or gaps in the field. " \
+                    "Inspire the researcher to think outside the box and explore new avenues of research, while also considering ethical, social, and environmental implications. " \
+                    "Encourage collaboration and interdisciplinary approaches to maximize the impact of their work and drive the research area towards a promising and sustainable future."
+
+    user_prompt = answer + "\n Instructions: Based on the literature review provided, please generate five detailed research questions for future researchers to explore. " \
+                           "Your research questions should build upon the existing knowledge and address gaps or areas that require further investigation. " \
+                           "Please provide sufficient context and details for each question."
+
+    response = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",
+        messages=[
+            {
+                "role": "system",
+                "content": system_prompt,
+            },
+            # {"role": "user", "content": answer },
+            {"role": "user", "content": user_prompt},
+        ],
+        api_key=OPENAI_API_KEY
+    )
+    return response.choices[0].message.content
 
 
 def is_valid_tiktoken(model_name, prompt):
@@ -370,11 +416,6 @@ def get_cluster_papers(H, G, cluster_nodes):
 
 
 def title_review_generate_prompt(abstracts, query_text, language):
-    if language == '日本語':
-        language_prompt = "Reply in Japanese, "
-    else:
-        language_prompt = ""
-
     abstracts_text = "\n\n".join(abstracts)
 
     # Query:\n\n{query_text}を Academic Abstracts のあとに入れる？
@@ -388,7 +429,6 @@ def title_review_generate_prompt(abstracts, query_text, language):
                 Task3: What are the unmet medical needs in this relm in detail?
                 Task4: What treatment methods are currently employed in detail?
                 Do not use prior knowledge or your own assumptions.
-                {language_prompt}
                 Make sure to cite results using [number] notation after the sentence.
 
                 ## Summary ##
@@ -399,10 +439,33 @@ def title_review_generate_prompt(abstracts, query_text, language):
 
                 ## Treatments ##
 
-                {language_prompt} write as long as possible.
+                write as long as possible.
                 """
 
-    return prompt
+    japanese_prompt = f"""学術論文のアブストラクト一覧： \n\n {abstracts_text} \n\n
+            指示：これらのアブストラクトは、文献の中で最も頻繁に参照されるものであり、背景や理論的視点を提供するものと想定される。
+            番号の小さい論文は、その分野でより頻繁に参照される基本的な文献であり、番号が大きくなるにつれて特定の分野（この場合はクエリ）に密接に関連するようになると想定される。
+            3つのタスクを行う：
+            タスク1： すべての文献を使って、これらのアブストラクトの文献レビューを書く。
+            タスク2： 5年間の最新の発展について、出版年の情報（published in ）を明記しながら議論する。
+            タスク3：この分野のunmet medical needsは何か？
+            タスク4：現在、どのような治療法が採用されているか。
+            予備知識や自分の思い込みを使わないこと。
+            結果の引用は、必ず文の後に [number] 表記で行うこと。ステップバイステップで考え、深呼吸して文章を執筆しましょう。
+           
+            1. 要約
+           
+            2. 最新の発展
+           
+            3. Unmet medical needs
+           
+            4. 治療法
+           
+            日本語で回答しなさい。できるだけ長く書くこと。"""
+    if language == '日本語':
+        return japanese_prompt
+    else:
+        return prompt
 
 
 #ここで，
@@ -426,10 +489,7 @@ def title_review_papers(papers, query_text, model = 'gpt-4-32k', language="Engli
 
 
 def summary_writer_generate_prompt(references, cluster_summary, draft, language):
-    if language == '日本語':
-        language_prompt = "Output in Japanese.\n\n"
-    else:
-        language_prompt = ""
+
 
     references_text = "\n\n".join(references)
 
@@ -444,10 +504,26 @@ def summary_writer_generate_prompt(references, cluster_summary, draft, language)
                 write separate answers for each subject.\n\n
 
                 Draft: {draft}\n\n
-                
-                {language_prompt}
                 """
-    return prompt
+
+    japanese_prompt = f"""学術論文の要約：\n\n
+                {cluster_summary}\n\n
+
+                参考文献： \n\n
+                {references_text}\n\n
+
+                指示: 提供された学術論文の要約を総合して、与えられた草稿について包括的な長文の説明を記述しなさい。
+                参考文献の引用は、必ず文の後に[number]表記で行うこと。参考文献が同じ名前で複数の主題に言及している場合は、主題ごとに別々の解答を書きなさい。
+
+                草稿： {draft}
+                
+                """
+    if language == '日本語':
+        return japanese_prompt
+    else:
+        return prompt
+
+
 def summery_writer_with_draft(cluster_summary, draft, references, model = 'gpt-4-32k',language="English"):
     prompt = summary_writer_generate_prompt([], cluster_summary, "", language)
     if not is_valid_tiktoken( model, prompt):
@@ -617,7 +693,6 @@ def plot_subgraph_of_partition(H, partition):
 
 
 def plot_cluster_i(H, cluster_id, partition):
-
     # クラスタ0番に属するノードを取得
     cluster_id_nodes = [node for node, cid in partition.items() if cid == cluster_id]
     if len(cluster_id_nodes) < 1:
@@ -655,3 +730,48 @@ def extract_reference_indices(response):
     # 数字をソートします
     transformed_numbers.sort()
     return transformed_numbers
+
+
+def calc_tf_idf(G, partition, cluster_id):
+    """
+    G networkx.Graph: 引用関係についての無向グラフ
+    partition dict: community_louvainによるコミュニティ分割の結果
+    cluster_id int: クラスタ番号
+    """
+    # ノードIDを取得
+    all_ids = partition.keys()
+    cluster_ids = [node for node, cid in partition.items() if cid == cluster_id]
+
+    # ノードIDからタイトルを取得
+    all_titles = pd.Series(all_ids).map(nx.get_node_attributes(G, 'title'))
+    cluster_titles = pd.Series(cluster_ids).map(nx.get_node_attributes(G, 'title'))
+
+    # all_titlesの内容をクリーンアップ（"From:"や"To:"を削除）
+    all_titles = all_titles.dropna().str.replace("From:", "").str.replace("To:", "").str.strip()
+
+    # cluster_titlesの内容をクリーンアップ（"From:"や"To:"を削除）
+    cluster_titles = cluster_titles.str.replace("From:", "").str.replace("To:", "").str.strip()
+
+    # 文章を結合して全部小文字に
+    cluster_text = " ".join(cluster_titles.dropna()).lower()
+
+    # 全論文タイトルも全部小文字に
+    all_titles = all_titles.str.lower()
+
+    # TF-IDFベクトライザーのインスタンスを作成
+    vectorizer = TfidfVectorizer(stop_words='english')
+
+    # 全論文タイトルとクラスタ内の論文タイトルを合わせて学習
+    vectorizer.fit_transform(pd.Series(all_titles.tolist() + [cluster_text]))
+
+    # クラスタ内の論文タイトルに対してTF-IDF値を計算
+    tfidf_vector = vectorizer.transform([cluster_text])
+
+    # 特徴語を取得
+    feature_names = vectorizer.get_feature_names_out()
+
+    # TF-IDF値が高いキーワードを抽出
+    df = pd.DataFrame(tfidf_vector.T.todense(), index=feature_names, columns=["TF-IDF"])
+    df = df.sort_values("TF-IDF", ascending=False)
+
+    return ", ".join(df.head(5).index.to_list())
