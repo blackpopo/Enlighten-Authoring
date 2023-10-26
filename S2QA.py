@@ -125,7 +125,6 @@ def display_language_toggle(unique_string):
     return toggle
 
 def display_cluster_years(df: pd.DataFrame):
-    print(df.columns)
     display_description("Publication years of papers in the cluster", 4)
     min_year, max_year, ave_year = df['year'].max(), df['year'].min(), df['year'].mean()
     min_year, max_year, ave_year = str(min_year).replace('.0', ''), str(max_year).replace('.0', ''), str(ave_year.round(2))
@@ -155,6 +154,22 @@ def display_cluster_years(df: pd.DataFrame):
 
     # Streamlit でグラフ表示
     st.pyplot(plt)
+
+def display_year_input():
+    # 現在の年を取得
+    current_year = datetime.datetime.now().year
+
+    # 列を作成
+    col1, col2 = st.columns(2)
+
+    # 開始年と終了年を横並びに表示
+    with col1:
+        start_year = st.selectbox("Start year of search", range(1880, current_year + 1), 0)
+
+    with col2:
+        end_year = st.selectbox("End year of search", range(1880, current_year + 1), current_year - 1880)
+
+    st.session_state['year'] = f"{start_year}-{end_year}"
 
 
 def get_session_info():
@@ -213,16 +228,21 @@ def app():
     query = st.text_input(
         "Enter your Research Keywords and Press Search Papers: ",
         value = query,
-        placeholder="e.g. \"medical writer\" \"best assistant\""
+        placeholder="e.g. \"childhood epilepsy\" \"breast cancer\""
     )
 
     st.session_state['query'] = query
 
+    #年の指定ボタン
+    display_year_input()
+
+    #検索の開始ボタン
     get_papers_button = st.button("Search Papers from Semantic Scholar")
 
+    #更新ボタンが押されているときに再度検索するための設定
     if 'update_papers' in st.session_state and st.session_state['update_papers']:
         get_papers_button = True
-        display_description("Update Searched Papers from Semantic Scholar")
+        display_description("Updating Searched Papers from Semantic Scholar")
         st.session_state.pop('update_papers')
 
     display_spaces(1)
@@ -241,7 +261,7 @@ def app():
                 display_description(f"Query: </h5> <h2> {query} </h2> <h5> is searching for semantic scholar.\n")
                 #Semantic Scholar による論文の保存
                 #良い論文の100件の取得
-                papers, total = get_papers(query, total_limit=total_limit)
+                papers, total = get_papers(query, st.session_state['year'], total_limit=total_limit)
                 # config への保存
                 st.session_state['papers'] = papers
                 if len(st.session_state['papers']) > 0:
@@ -267,6 +287,7 @@ def app():
 
         display_spaces(2)
 
+        #検索からの結果かデータベースに保存していた結果であることの表示
         if total:
             display_description(f"Retrieval of papers from Semantic Scholar has been completed.")
             display_description(f"{len(st.session_state['papers_df'])} / {total} papers retrieved.")
@@ -274,21 +295,23 @@ def app():
             display_description(f"Retrieved from Semantic Scholar stored in database.")
             display_description(f"Up to {len(st.session_state['papers_df'])} papers are available for review.")
 
+    # 論文の更新．ファイルの削除と再検索のための設定を行っている．
     if 'update_papers' in st.session_state:
-        # 論文の更新．
+        display_description("Update Searched Papers from Semantic Scholar")
         update_button = st.button("Update the papers")
         if update_button:
-            #保存してあるファイルの削除．
-            os.remove(os.path.join(data_folder, f"{safe_filename(encode_to_filename(query))}.csv"))
-            os.remove(os.path.join(data_folder, f"{safe_filename(encode_to_filename(query))}_all.csv"))
+            csv_path = os.path.join(data_folder, f"{safe_filename(encode_to_filename(query))}.csv")
+            all_csv_path = os.path.join(data_folder, f"{safe_filename(encode_to_filename(query))}_all.csv")
+            if os.path.exists(csv_path):
+                #保存してあるファイルの削除．
+                os.remove(csv_path)
+            if os.path.exists(all_csv_path):
+                os.remove(all_csv_path)
             st.session_state['update_papers'] = True
             st.experimental_rerun()
 
     #すでに papers のデータフレームがあれば、それを表示する。
     if 'papers_df' in st.session_state:
-        # if 'number_of_review_papers' in st.session_state:
-        #     display_dataframe_detail(st.session_state['papers_df'], f'Top {st.session_state["number_of_review_papers"]} Papers retrieved from Semantic Scholar.', st.session_state["number_of_review_papers"])
-        # else:
         display_dataframe_detail(st.session_state['papers_df'],  f'Top 20 Papers retrieved from Semantic Scholar.', 20)
 
 
@@ -310,12 +333,54 @@ def app():
                 st.session_state['topk_review_response'] = response
                 st.session_state['topk_review_titles'] = titles
 
+                reference_indices = extract_reference_indices(response)
+                references_list = [reference_text for i, reference_text in enumerate(titles) if i in reference_indices]
+                st.session_state['topk_references_list'] = references_list
+
     #レビュー内容の常時表示
-    if 'papers_df' in st.session_state and 'topk_review_response' in st.session_state and 'topk_review_caption' in st.session_state:
+    if 'papers_df' in st.session_state and 'topk_review_response' in st.session_state and 'topk_review_caption' in st.session_state and 'topk_references_list' in st.session_state:
         display_description(st.session_state['topk_review_caption'])
         display_spaces(1)
         display_description("Generated Review", size=3)
         display_list(st.session_state['topk_review_response'].replace('#', '').split('\n'), size=8)
+
+        if len(st.session_state['topk_references_list']) > 0:
+            display_description('References', size=6)
+            display_references_list(st.session_state['topk_references_list'])
+
+
+    #レビューによる草稿の入力部分
+    if 'papers_df' in st.session_state and 'topk_review_response' in st.session_state and 'topk_references_list' in st.session_state:
+        display_description('Please enter your draft in the input box to rewrite your draft using the topk reviews.', 3)
+        #ドラフトの入力部分
+        draft_text = st.text_area(label='review draft input filed.', placeholder='Past your draft of review here.', label_visibility='hidden', height=300)
+
+        toggle = display_language_toggle(f"review draft for topk papers")
+
+        write_summary_button = st.button(f"Generate the re-edited version of your draft using the topk review. This may take some time.", )
+
+        if write_summary_button and len(draft_text) > 0:
+            with st.spinner("⏳ Generating the re-edited version of your draft with AI..."):
+                topk_summary_response, caption = summery_writer_with_draft(st.session_state['topk_review_response'], draft_text, st.session_state['topk_references_list'], model = 'gpt-4-32k', language=toggle)
+                display_description(caption)
+                display_spaces(1)
+
+                st.session_state['topk_summary_response'] = topk_summary_response
+
+                reference_indices = extract_reference_indices(topk_summary_response)
+                references_list = [reference_text for i, reference_text in enumerate(st.session_state['topk_references_list']) if
+                                   i in reference_indices]
+                st.session_state['topk_summary_references_list'] = references_list
+        elif write_summary_button:
+            display_description("The text input area is empty. Please fill in your draft.")
+
+    #論文の草稿を書き直した結果の再表示
+    if 'topk_summary_response' in st.session_state and 'topk_summary_references_list' in st.session_state:
+        display_list(st.session_state['topk_summary_response'].replace('#', '').split('\n'), size=8)
+
+        if len(st.session_state['topk_summary_references_list']) > 0:
+            display_description('References', size=6)
+            display_references_list(st.session_state['topk_summary_references_list'])
 
     #コミュニティグラフによるレビュー
     display_spaces(3)
@@ -328,20 +393,20 @@ def app():
         with st.spinner("⏳ Graph is constructed using community graph ..."):
             G = get_paper_graph(st.session_state['papers_df'])
             st.session_state['G'] = G
-            print('Graph is constructed')
 
         with st.spinner("⏳ Subgraph is constructed using community graph ..."):
             H = extract_subgraph(G)
             st.session_state['H'] = H
-            print('Subgraph is constructed')
 
         node_attributes = pd.DataFrame.from_dict(dict(H.nodes(data=True)), orient='index')
         node_attributes.index.name = "Node Name (Paper ID)"
 
 
         if len(H.nodes) == 0:
-            display_description("Graph construction failed, please try again from the Semantic Scholar search.")
+            display_error("Graph construction failed, please try again from the Semantic Scholar search.")
             st.session_state.pop('H')
+            #グラフの構築に失敗した場合はここで停止する
+            st.stop()
 
     if 'papers_df' in st.session_state and len(st.session_state['papers_df']) == 0:
         st.experimental_rerun()

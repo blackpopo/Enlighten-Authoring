@@ -48,38 +48,6 @@ def tiktoken_setup(offset = 8):
 
 tiktoken_dict = tiktoken_setup()
 
-# def get_gpt_response(system_input, model = "gpt-4"):
-#     print(f'prompt\n {system_input}')
-#     response = openai.ChatCompletion.create(
-#         model= model,
-#         messages=[
-#           {"role": "system", "content": system_input},
-#         ],
-#     )
-#     print(response.choices[0]["message"]["content"].strip())
-#     return response.choices[0]["message"]["content"].strip()
-#
-# def get_gpt_response2(system_input, user_input, model = "gpt-4-32k"):
-#     response = openai.ChatCompletion.create(
-#         model= model,
-#         messages=[
-#            {"role": "system", "content": system_input},
-#             {"role": "user", "content" : user_input}
-#         ],
-#     )
-#     return response.choices[0]["message"]["content"].strip()
-#
-# def get_keywords(user_input):
-#     system_input = "You will be provided with a block of text, and your task is to extract a list of keywords from it. Please output only keywords separated by commas."
-#     try:
-#         gpt_response = get_gpt_response2(system_input, user_input, 'gpt-4-32k')
-#         print(f'gpt response is {gpt_response}')
-#         keywords = gpt_response.split(',')
-#         return keywords
-#     except Exception as e:
-#         print(f'Error happened as {e}')
-#         sleep(5)
-
 def get_azure_gpt_response(system_input, model_name='gpt-4-32k'):
     response = openai.ChatCompletion.create(
         engine=model_name,
@@ -104,9 +72,9 @@ def suggest_paper_completions(query):
 
 
 #クエリにもとづいて、Semantic Scholar から論文を offset を始めとして、 limit 分取得する。
-def _get_papers(query, offset, limit, fields):
+def _get_papers(query, year, offset, limit, fields):
     base_url = "http://api.semanticscholar.org/graph/v1/paper/search"
-    params = {"query": query, "offset": offset, "limit": limit, "fields": fields}
+    params = {"query": query, "offset": offset, "limit": limit, "fields": fields, 'year': year}
     headers = {"x-api-key": SEMANTICSCHOLAR_API_KEY}  # API keyをヘッダーに追加
 
     retries = 10  # リトライする回数
@@ -131,13 +99,13 @@ def _get_papers(query, offset, limit, fields):
     print("All retries failed")
     return None
 
-def get_papers(query_text, offset = 0, limit = 100, total_limit = 1000):
+def get_papers(query_text, year, offset = 0, limit = 100, total_limit = 1000):
   papers = []
   fields = "paperId,title,abstract,year,authors,journal,citationCount,referenceCount,references,embedding,references.title,references.abstract,references.year,references.authors,references.citationCount,references.referenceCount"
 
   # 最初の結果セットを取得
   # _get_papersはエラーが発生した場合 None を返す
-  result = _get_papers(query_text, offset, limit, fields=fields)
+  result = _get_papers(query_text, year, offset, limit, fields=fields)
   if not result or result['total'] == 0:
     return [], 0
 
@@ -149,7 +117,7 @@ def get_papers(query_text, offset = 0, limit = 100, total_limit = 1000):
   # 1000件未満なら全件取得
   while len(papers) < min(total_limit, result['total']):
       offset += limit
-      result = _get_papers(query_text, offset, limit, fields=fields)
+      result = _get_papers(query_text, year, offset, limit, fields=fields)
       if not result:
           if len(papers) > 0:
               break
@@ -159,7 +127,7 @@ def get_papers(query_text, offset = 0, limit = 100, total_limit = 1000):
       papers.extend(result['data'])
   return papers, result['total']
 
-
+#Reference を含めた正規化された論文一覧
 def get_all_papers_from_references(papers):
     all_papers = papers.copy()
     all_papers.drop(columns=['references'], inplace=True)
@@ -442,26 +410,47 @@ def title_review_generate_prompt(abstracts, query_text, language):
                 write as long as possible.
                 """
 
-    japanese_prompt = f"""学術論文のアブストラクト一覧： \n\n {abstracts_text} \n\n
-            指示：これらのアブストラクトは、文献の中で最も頻繁に参照されるものであり、背景や理論的視点を提供するものと想定される。
-            番号の小さい論文は、その分野でより頻繁に参照される基本的な文献であり、番号が大きくなるにつれて特定の分野（この場合はクエリ）に密接に関連するようになると想定される。
-            3つのタスクを行う：
-            タスク1： すべての文献を使って、これらのアブストラクトの文献レビューを書く。
-            タスク2： 5年間の最新の発展について、出版年の情報（published in ）を明記しながら議論する。
-            タスク3：この分野のunmet medical needsは何か？
-            タスク4：現在、どのような治療法が採用されているか。
-            予備知識や自分の思い込みを使わないこと。
-            結果の引用は、必ず文の後に [number] 表記で行うこと。ステップバイステップで考え、深呼吸して文章を執筆しましょう。
-           
-            1. 要約
-           
-            2. 最新の発展
-           
-            3. Unmet medical needs
-           
-            4. 治療法
-           
-            日本語で回答しなさい。できるだけ長く書くこと。"""
+    japanese_prompt = f"""以下は学術論文のアブストラクトです。\n\n
+                        {abstracts_text}\n
+                        \n
+                        これらのアブストラクトは{1}に関する研究分野の重要な知見をもたらしています。\n
+                        これらに基づいて以下のタスクを実行してください。なお、事前知識や思い込みは使用しないで、水平思考で答えてください。\n
+                        オーディエンスとしては、詳細な解析のための情報を必要とする製薬企業の開発担当者を想定してください。\n
+                        \n
+                        ## 定義\n
+                        {query_text}について定義してください。情報があれば人口動態や罹患率についても述べてください。\n
+                        \n
+                        ## 要約\n
+                        与えられたアブストラクトを包括的に要約してください。要約は、原文で提示されている重要なポイントや主要なアイデアをすべてカバーすると同時に、情報を簡潔で理解しやすい形式に凝縮する必要があります。不必要な情報や繰り返しを避けながら、主要なアイデアを裏付ける関連する詳細や例を含めるようにしてください。要約の長さは、原文の長さと複雑さに対して適切であるべきで、重要な情報を省略することなく、明確で正確な概要を提供すること。\n
+                        出力は20文出力して、行数を数えてください。\n
+                        \n
+                        ## 最近の発展\n
+                        この研究分野の最近の発展について（Published in）に示される出版年を参考に述べてください。特に5年以内の発展を重視すること。\n
+                        アブストラクトで提示されている重要なポイントや主要なアイデアをすべてカバーすると同時に、情報を簡潔で理解しやすい形式に凝縮する必要があります。不必要な情報や繰り返しを避けながら、主要なアイデアを裏付ける関連する詳細や例を含めるようにしてください。文章の長さは、原文の長さと複雑さに対して適切であるべきで、重要な情報を省略することなく、明確で正確な概要を提供すること。\n
+                        出力は20文出力して、行数を数えてください。\n
+                        \n
+                        ## 未解決の問題\n
+                        これらのアブストラクトで指摘されている研究分野の未解決の問題をリストアップして、各項目について詳細に説明してください。\n
+                        - \n
+                        - \n
+                        - \n
+                        \n
+                        ## 手法\n
+                        これらのアブストラクトで指摘されているこの研究分野で用いられている手法や治療法とその効果をリストアップして、各項目について詳細に説明しtください。\n
+                        - \n
+                        - \n
+                        - \n
+                        \n
+                        ## 薬剤\n
+                        これらのアブストラクトで指摘されているこの研究分野で用いられている薬剤とその安全性・有効性をリストアップして、各項目について詳細に説明してください。\n
+                        - \n
+                        - \n
+                        - \n
+                        \n
+                        回答にあたっては、[number]という形式で引用を明記してください。日本語で回答してください。\n
+                        では、深呼吸をして回答に取り組んでください。\n
+                        """
+
     if language == '日本語':
         return japanese_prompt
     else:
@@ -723,10 +712,15 @@ def plot_cluster_i(H, cluster_id, partition):
     return True
 
 def extract_reference_indices(response):
-    # 数字を抽出します
-    numbers = re.findall(r'\[(\d+)\]', response)
-    # 数字から1を引き、整数型に変換してリストに格納します
-    transformed_numbers = list(set([int(num) - 1 for num in numbers]))
+    # 複数の数字を抽出するための正規表現を使用します
+    numbers = re.findall(r'\[([\d,\s]+)\]', response)
+    # 数字をコンマで分割し、整数型に変換してリストに格納します
+    transformed_numbers = []
+    for num_str in numbers:
+        for num in num_str.split(","):
+            transformed_numbers.append(int(num.strip()) - 1)
+    # 重複する数字を削除します
+    transformed_numbers = list(set(transformed_numbers))
     # 数字をソートします
     transformed_numbers.sort()
     return transformed_numbers
@@ -775,3 +769,16 @@ def calc_tf_idf(G, partition, cluster_id):
     df = df.sort_values("TF-IDF", ascending=False)
 
     return ", ".join(df.head(5).index.to_list())
+
+
+if __name__=='__main__':
+    response = "近年、社会ロボットやAIとのインタラクションが人間の感情調整に効果的であることが明らかとなりました。特に、これらの技術が子供たちの感情調整をサポートする能力が注目されています。" \
+               "一部の研究では、マルチ重み付けマルコフ決定プロセス感情調整（MDPER）ロボットが作成され、その結果、人間とロボット間の感情調整が可能となっています[1]。" \
+               "加えて、子供たちが社会ロボットとのストーリーテリング活動で創造性を発揮する際に感情調整技術が有効に使われています[2]。" \
+                "このような発展により、「感情の視覚表現や温度の表現」を通じてロボットが感情を伝達し、子供の感情調節を支援するという新しい可能性が生まれてきました[13,20,16,7]。" \
+               "具体的には、社会ロボットの感情的なアイジェスチャーを設計するフレームワークが研究されており[20]、このフレームワークを使用すれば、ロボットは視覚的表現を通じて子供たちに自らの感情状態を伝達できるようになるでしょう。" \
+               "子供たちが自身の感情をより効果的に制御できるようになったと報告されています[13]。" \
+               "また、自閉スペクトラム障害（ASD）の子供たちも、社会感情スキルとSTEMの学習を同時に進めるために、AIとのインタラクションを通じた学習が行われており、有用性が確認されています[4]。" \
+               "しかし、それらの技術や方法がまだ発展段階にあることを忘れてはなりません。より効果的な感情調整手段、具体的な介入方法、効率的な学習手法を見つけて、これらのツールを生かすためには、引き続き研究が必要となります。"
+
+    print(extract_reference_indices(response))
