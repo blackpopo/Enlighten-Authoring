@@ -260,7 +260,7 @@ def save_papers_dataframe(df, query_text):
     df.to_csv(os.path.join(data_folder, f'{file_name}.csv'), encoding='utf-8')
 
 
-def load_papers_dataframe(query_text, literal_evals = ['references', 'authors', 'embedding'], dropna_list = ['embedding', 'title', 'abstract']):
+def load_papers_dataframe(query_text, literal_evals = ['references', 'authors', 'embedding'], dropna_list = ['title', 'abstract']):
     encoded_query_text_without_extension = encode_to_filename(query_text)
     file_name = safe_filename(encoded_query_text_without_extension)
     papers = pd.read_csv(os.path.join(data_folder, f'{file_name}.csv'))
@@ -278,54 +278,6 @@ def to_dataframe(source, drop_list = [ 'title', 'abstract']):
         source.dropna(subset=drop_list, inplace=True)
         source.reset_index(drop=True, inplace=True)
     return source
-
-def generate_answer(prompt):
-    """Generates an answer using ChatGPT."""
-
-    prompt = "You are a helpful assistant to a researcher. " \
-             "You are helping them write a paper. " \
-             "You are given a prompt and a list of references. " \
-             "You are asked to write a summary of the references if they are related to the question. " \
-             "You should not include any personal opinions or interpretations in your answer, but rather focus on objectively presenting the information from the search results.",
-    response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        messages=[
-            {
-                "role": "system",
-                "content": prompt,
-            },
-            {"role": "user", "content": prompt},
-        ],
-        api_key=OPENAI_API_KEY,
-    )
-    return response.choices[0].message.content
-
-def get_research_questions(answer):
-    """Generates an answer using ChatGPT."""
-    system_prompt = "You are helpful research visionary, consider the future possibilities and trends in a specific research area." \
-                    " Analyze the current state of the field, advancements in technology, and the potential for growth and development. " \
-                    "Offer insights into how the researcher can contribute to this evolving landscape and provide innovative ideas that address challenges or gaps in the field. " \
-                    "Inspire the researcher to think outside the box and explore new avenues of research, while also considering ethical, social, and environmental implications. " \
-                    "Encourage collaboration and interdisciplinary approaches to maximize the impact of their work and drive the research area towards a promising and sustainable future."
-
-    user_prompt = answer + "\n Instructions: Based on the literature review provided, please generate five detailed research questions for future researchers to explore. " \
-                           "Your research questions should build upon the existing knowledge and address gaps or areas that require further investigation. " \
-                           "Please provide sufficient context and details for each question."
-
-    response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        messages=[
-            {
-                "role": "system",
-                "content": system_prompt,
-            },
-            # {"role": "user", "content": answer },
-            {"role": "user", "content": user_prompt},
-        ],
-        api_key=OPENAI_API_KEY
-    )
-    return response.choices[0].message.content
-
 
 def is_valid_tiktoken(model_name, prompt):
     model, limit = tiktoken_dict[model_name]
@@ -407,7 +359,7 @@ def title_review_generate_prompt(abstracts, query_text, language):
 
                 ## Treatments ##
 
-                write as long as possible.
+                You must reply in English and write as long as possible.
                 """
 
     japanese_prompt = f"""以下は学術論文のアブストラクトです。\n\n
@@ -421,12 +373,14 @@ def title_review_generate_prompt(abstracts, query_text, language):
                         {query_text}について定義してください。情報があれば人口動態や罹患率についても述べてください。\n
                         \n
                         ## 要約\n
-                        与えられたアブストラクトを包括的に要約してください。要約は、原文で提示されている重要なポイントや主要なアイデアをすべてカバーすると同時に、情報を簡潔で理解しやすい形式に凝縮する必要があります。不必要な情報や繰り返しを避けながら、主要なアイデアを裏付ける関連する詳細や例を含めるようにしてください。要約の長さは、原文の長さと複雑さに対して適切であるべきで、重要な情報を省略することなく、明確で正確な概要を提供すること。\n
+                        与えられたアブストラクトを包括的に要約してください。要約は、原文で提示されている重要なポイントや主要なアイデアをすべてカバーすると同時に、情報を簡潔で理解しやすい形式に凝縮する必要があります。不必要な情報や繰り返しを避けながら、主要なアイデアを裏付ける関連する詳細や例を含めるようにしてください。
+                        要約の長さは、原文の長さと複雑さに対して適切であるべきで、重要な情報を省略することなく、明確で正確な概要を提供すること。\n
                         出力は20文出力して、行数を数えてください。\n
                         \n
                         ## 最近の発展\n
                         この研究分野の最近の発展について（Published in）に示される出版年を参考に述べてください。特に5年以内の発展を重視すること。\n
-                        アブストラクトで提示されている重要なポイントや主要なアイデアをすべてカバーすると同時に、情報を簡潔で理解しやすい形式に凝縮する必要があります。不必要な情報や繰り返しを避けながら、主要なアイデアを裏付ける関連する詳細や例を含めるようにしてください。文章の長さは、原文の長さと複雑さに対して適切であるべきで、重要な情報を省略することなく、明確で正確な概要を提供すること。\n
+                        アブストラクトで提示されている重要なポイントや主要なアイデアをすべてカバーすると同時に、情報を簡潔で理解しやすい形式に凝縮する必要があります。
+                        不必要な情報や繰り返しを避けながら、主要なアイデアを裏付ける関連する詳細や例を含めるようにしてください。文章の長さは、原文の長さと複雑さに対して適切であるべきで、重要な情報を省略することなく、明確で正確な概要を提供すること。\n
                         出力は20文出力して、行数を数えてください。\n
                         \n
                         ## 未解決の問題\n
@@ -447,7 +401,7 @@ def title_review_generate_prompt(abstracts, query_text, language):
                         - \n
                         - \n
                         \n
-                        回答にあたっては、[number]という形式で引用を明記してください。日本語で回答してください。\n
+                        回答にあたっては、[number]という形式で引用を明記してください。必ず日本語で回答してください。\n
                         では、深呼吸をして回答に取り組んでください。\n
                         """
 
@@ -488,7 +442,7 @@ def summary_writer_generate_prompt(references, cluster_summary, draft, language)
                 References:\n\n
                 {references_text}\n\n
 
-                Instructions: Using the provided academic summaries, write a comprehensive long description about the given draft by synthesizing these summaries. 
+                Instructions: Using the provided academic summaries, write a comprehensive long description about the given draft by synthesizing these summaries. You must write in English.
                 Make sure to cite results using [number] notation after the sentence. If the provided search results refer to multiple subjects with the same name, 
                 write separate answers for each subject.\n\n
 
@@ -501,7 +455,7 @@ def summary_writer_generate_prompt(references, cluster_summary, draft, language)
                 参考文献： \n\n
                 {references_text}\n\n
 
-                指示: 提供された学術論文の要約を総合して、与えられた草稿について包括的な長文の説明を記述しなさい。
+                指示: 提供された学術論文の要約を総合して、与えられた草稿について包括的な長文の説明を記述しなさい。必ず日本語で記述しなさい。
                 参考文献の引用は、必ず文の後に[number]表記で行うこと。参考文献が同じ名前で複数の主題に言及している場合は、主題ごとに別々の解答を書きなさい。
 
                 草稿： {draft}
@@ -712,17 +666,29 @@ def plot_cluster_i(H, cluster_id, partition):
     return True
 
 def extract_reference_indices(response):
-    # 複数の数字を抽出するための正規表現を使用します
-    numbers = re.findall(r'\[([\d,\s]+)\]', response)
+    # 複数の数字を抽出するための正規表現を使用します。ハイフンでの範囲も考慮に入れます。
+    numbers = re.findall(r'\[([\d,\s,-]+)\]', response)
+
     # 数字をコンマで分割し、整数型に変換してリストに格納します
     transformed_numbers = []
     for num_str in numbers:
         for num in num_str.split(","):
-            transformed_numbers.append(int(num.strip()) - 1)
+            num = num.strip()
+            if '-' in num:  # ハイフンがある場合、その範囲のすべての数字を取得します。
+                start, end = map(int, num.split('-'))
+                transformed_numbers.extend(range(start, end + 2))
+            else:
+                transformed_numbers.append(int(num))
+
+    # 1から始まるインデックスを0から始まるインデックスに変換
+    transformed_numbers = [x - 1 for x in transformed_numbers]
+
     # 重複する数字を削除します
     transformed_numbers = list(set(transformed_numbers))
+
     # 数字をソートします
     transformed_numbers.sort()
+
     return transformed_numbers
 
 
@@ -777,7 +743,7 @@ if __name__=='__main__':
                "加えて、子供たちが社会ロボットとのストーリーテリング活動で創造性を発揮する際に感情調整技術が有効に使われています[2]。" \
                 "このような発展により、「感情の視覚表現や温度の表現」を通じてロボットが感情を伝達し、子供の感情調節を支援するという新しい可能性が生まれてきました[13,20,16,7]。" \
                "具体的には、社会ロボットの感情的なアイジェスチャーを設計するフレームワークが研究されており[20]、このフレームワークを使用すれば、ロボットは視覚的表現を通じて子供たちに自らの感情状態を伝達できるようになるでしょう。" \
-               "子供たちが自身の感情をより効果的に制御できるようになったと報告されています[13]。" \
+               "子供たちが自身の感情をより効果的に制御できるようになったと報告されています[10-13]。" \
                "また、自閉スペクトラム障害（ASD）の子供たちも、社会感情スキルとSTEMの学習を同時に進めるために、AIとのインタラクションを通じた学習が行われており、有用性が確認されています[4]。" \
                "しかし、それらの技術や方法がまだ発展段階にあることを忘れてはなりません。より効果的な感情調整手段、具体的な介入方法、効率的な学習手法を見つけて、これらのツールを生かすためには、引き続き研究が必要となります。"
 

@@ -14,6 +14,9 @@ OPENAI_API_KEY = st.secrets['OPENAI_API_KEY']
 DEEPL_API_KEY = st.secrets['DEEPL_API_KEY']
 SEMANTICSCHOLAR_API_KEY = st.secrets['SEMANTICSCHOLAR_API_KEY']
 
+st.set_page_config(
+    page_title="Enlighten Authoring",
+    initial_sidebar_state="auto")
 
 def display_dataframe(df, title, topk, columns=None):
     st.subheader(title)
@@ -120,13 +123,13 @@ def display_references_list(references_list, size=7):
 def display_language_toggle(unique_string):
     toggle = st.radio(
         f"Select the language for {unique_string}.",
-        ['English', '日本語']
+        [ '日本語', 'English']
     )
     return toggle
 
 def display_cluster_years(df: pd.DataFrame):
     display_description("Publication years of papers in the cluster", 4)
-    min_year, max_year, ave_year = df['year'].max(), df['year'].min(), df['year'].mean()
+    min_year, max_year, ave_year = df['year'].min(), df['year'].max(), df['year'].mean()
     min_year, max_year, ave_year = str(min_year).replace('.0', ''), str(max_year).replace('.0', ''), str(ave_year.round(2))
     current_year = datetime.datetime.now().year
     recent_5_years_count = df[df['year'] > (current_year - 5)].shape[0]
@@ -228,7 +231,7 @@ def app():
     query = st.text_input(
         "Enter your Research Keywords and Press Search Papers: ",
         value = query,
-        placeholder="e.g. \"childhood epilepsy\" \"breast cancer\""
+        placeholder="e.g. \"pediatric epilepsy\" \"breast cancer\""
     )
 
     st.session_state['query'] = query
