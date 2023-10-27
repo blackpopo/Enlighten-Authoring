@@ -316,7 +316,7 @@ def app():
 
     #すでに papers のデータフレームがあれば、それを表示する。
     if 'papers_df' in st.session_state:
-        display_dataframe_detail(st.session_state['papers_df'],  f'上位 20 件の論文検索結果', 20)
+        display_dataframe_detail(st.session_state['papers_df'],  f'論文検索結果上位 20 件', 20)
 
     display_spaces(2)
 
@@ -495,7 +495,7 @@ def app():
         temp_cluster_df_detail =  matched_papers_df.rename(columns={'DegreeCentrality': "Importance"})
         temp_cluster_df_detail.index.name = 'Paper ID'
         temp_cluster_df_detail = temp_cluster_df_detail.sort_values('Importance', ascending=False)
-        display_cluster_dataframe(temp_cluster_df_detail, f'クラスタ番号 {selected_number} 内での上位 20 件の検索結果', 20)
+        display_cluster_dataframe(temp_cluster_df_detail, f'クラスタ番号 {selected_number} 内での検索結果上位 20 件', 20)
 
         #クラスタの年情報の追加
         display_cluster_years(temp_cluster_df_detail)
