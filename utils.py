@@ -260,7 +260,7 @@ def save_papers_dataframe(df, query_text):
     df.to_csv(os.path.join(data_folder, f'{file_name}.csv'), encoding='utf-8')
 
 
-def load_papers_dataframe(query_text, literal_evals = ['references', 'authors', 'embedding'], dropna_list = ['title', 'abstract']):
+def load_papers_dataframe(query_text, literal_evals = ['references', 'authors'], dropna_list = ['title', 'abstract']):
     encoded_query_text_without_extension = encode_to_filename(query_text)
     file_name = safe_filename(encoded_query_text_without_extension)
     papers = pd.read_csv(os.path.join(data_folder, f'{file_name}.csv'))
@@ -416,7 +416,7 @@ def title_review_papers(papers, query_text, model = 'gpt-4-32k', language="Engli
     abstracts = []
     titles = []
     prompt = title_review_generate_prompt([], query_text, language)
-    caption = f"All papers were used to generate the review. "
+    caption = f"{len(papers)} 件の論文がレビューに使用されました。"
     for i, (title, abstract, year) in enumerate(zip(papers["title"], papers["abstract"], papers['year']), 1):
         text = f"[{i}] (Published in {year}) {title}\n{abstract}"
         abstracts.append(text)
@@ -425,7 +425,7 @@ def title_review_papers(papers, query_text, model = 'gpt-4-32k', language="Engli
         prompt = title_review_generate_prompt(abstracts, query_text, language)
         if not is_valid_tiktoken(model, prompt):
             prompt = topk_review_generate_prompt(abstracts[:-1], query_text)
-            caption = f"{i - 1} / {len(papers)} papers were used to generate the review. "
+            caption = f"{i - 1} / {len(papers)} 件の論文がレビューに使用されました。"
             break
     cluster_summary = get_azure_gpt_response(prompt, model)
     return cluster_summary, titles, caption
@@ -557,6 +557,20 @@ def community_clustering(H):
     # データフレームの作成
     cluster_df = pd.DataFrame(list(cluster_counts.items()), columns=['clusterNumber', 'numberOfNodes'])
 
+    # numberOfNodesに関して降順にソートする
+    cluster_df = cluster_df.sort_values('numberOfNodes', ascending=False).reset_index(drop=True)
+
+    #ソートした結果によってclusterNumber を書き換える
+    cluster_df['newClusterNumber'] = range(len(cluster_df))
+
+
+    # 書き換えたクラスター番号に合わせて partition の cluster_id も書き換える
+    partition = {node: cluster_df.loc[cluster_df['clusterNumber'] == cluster_id, 'newClusterNumber'].iloc[0]
+                     for node, cluster_id in partition.items()}
+
+    print(cluster_df.columns)
+    cluster_df['clusterNumber'] = cluster_df['newClusterNumber']
+    cluster_df.drop(['newClusterNumber'], axis="columns")
 
     # クラスタリング係数、平均経路長、密度を計算
     clustering_coefficients = []
@@ -641,9 +655,6 @@ def plot_cluster_i(H, cluster_id, partition):
     if len(cluster_id_nodes) < 1:
         st.write("No nodes found for the given cluster ID.")
         return False
-
-    st.write(f'<h4> Number of papers used in the plot: {len(cluster_id_nodes)} </h4>', unsafe_allow_html=True)
-
     # サブグラフの作成
     H_cluster_id = H.subgraph(cluster_id_nodes)
 
