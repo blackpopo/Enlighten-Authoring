@@ -159,7 +159,7 @@ def display_cluster_years(df: pd.DataFrame):
     # Matplotlib で折れ線グラフ作成
     plt.figure(figsize=(12, 6))
     plt.plot(paper_count_by_year.index, paper_count_by_year.values, color='aqua', marker='o')
-    plt.xlabel('年', fontname="MS Gothic")
+    plt.xlabel('出版年')
     plt.ylabel('論文数[本]')
     plt.xticks(x_ticks, rotation=45)
     plt.yticks(np.arange(0, paper_count_by_year.values.max() + 1, step=1))
