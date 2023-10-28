@@ -9,6 +9,7 @@ import requests
 from collections import defaultdict, namedtuple
 import datetime
 import numpy as np
+import japanize_matplotlib
 
 OPENAI_API_KEY = st.secrets['OPENAI_API_KEY']
 DEEPL_API_KEY = st.secrets['DEEPL_API_KEY']
@@ -159,7 +160,7 @@ def display_cluster_years(df: pd.DataFrame):
     plt.figure(figsize=(12, 6))
     plt.plot(paper_count_by_year.index, paper_count_by_year.values, color='aqua', marker='o')
     plt.xlabel('年', fontname="MS Gothic")
-    plt.ylabel('論文数[本]', fontname="MS Gothic")
+    plt.ylabel('論文数[本]')
     plt.xticks(x_ticks, rotation=45)
     plt.yticks(np.arange(0, paper_count_by_year.values.max() + 1, step=1))
 
