@@ -11,14 +11,14 @@ import ast
 import pandas as pd
 import matplotlib.pyplot as plt
 import tqdm
-import community as community_louvain # python-louvain packageをインストールする必要があるわ
 import plotly.graph_objects as go
 import networkx as nx
 import openai
 import streamlit as st
 from sklearn.feature_extraction.text import TfidfVectorizer
-
-
+import infomap
+from collections import defaultdict
+import numpy as np
 
 OPENAI_API_KEY = st.secrets['OPENAI_API_KEY']
 DEEPL_API_KEY = st.secrets['DEEPL_API_KEY']
@@ -316,26 +316,6 @@ def topk_review_papers(papers_df, query_text, model='gpt3.5-turbo-16k', topk=20)
     return gpt_response, caption
 
 
-
-def get_cluster_papers(H, G, cluster_nodes):
-    # クラスタ0に属するノードだけでサブグラフを作成
-    H_cluster = H.subgraph(cluster_nodes)
-
-    # 次数中心性を計算
-    degree_centrality = nx.degree_centrality(H_cluster)
-
-    # データフレームに変換
-    df_centrality = pd.DataFrame(degree_centrality.items(), columns=['Node', 'DegreeCentrality'])
-
-    # タイトルを持つ新しいカラムを作成
-    df_centrality['TitleNode'] = df_centrality['Node'].map(nx.get_node_attributes(G, 'title'))
-    df_centrality['Title'] = df_centrality['TitleNode'].str.replace('To:', '').str.replace('From:', '')
-
-    # 次数中心性で降順ソート
-    df_centrality = df_centrality.sort_values('DegreeCentrality', ascending=False)
-    return df_centrality
-
-
 def title_review_generate_prompt(abstracts, query_text, language):
     abstracts_text = "\n\n".join(abstracts)
 
@@ -489,6 +469,7 @@ def summery_writer_with_draft(cluster_summary, draft, references, model = 'gpt-4
     summary = get_azure_gpt_response(prompt, 'gpt-4-32k')
     return summary, caption
 
+
 # DiGraphの初期化
 
 def get_paper_graph(papers_df):
@@ -544,138 +525,113 @@ def plot_subgraph(H):
 
     st.pyplot(plt)
 
-def community_clustering(H):
-    # 最適なモジュラリティを持つコミュニティを見つける
-    partition = community_louvain.best_partition(H, random_state=42)
 
-    # クラスタのノード数をカウント
+#グラフ全体Hに対してPageRankを計算する
+def get_cluster_papers(H, G, cluster_nodes):
+    # クラスタ0に属するノードだけでサブグラフを作成
+    H_cluster = H.subgraph(cluster_nodes)
+
+    # 次数中心性を計算
+    degree_centrality = nx.degree_centrality(H_cluster)
+
+    # データフレームに変換
+    df_centrality = pd.DataFrame(degree_centrality.items(), columns=['Node', 'DegreeCentrality'])
+
+    # タイトルを持つ新しいカラムを作成
+    df_centrality['TitleNode'] = df_centrality['Node'].map(nx.get_node_attributes(G, 'title'))
+    df_centrality['Title'] = df_centrality['TitleNode'].str.replace('To:', '').str.replace('From:', '')
+
+    # 次数中心性で降順ソート
+    df_centrality = df_centrality.sort_values('DegreeCentrality', ascending=False)
+    return df_centrality
+def page_ranking_sort(H):
+
+    # PageRankの計算
+    pagerank = nx.pagerank(H, alpha=0.9)
+
+    # 次数中心性の計算
+    degree_centrality = nx.degree_centrality(H)
+
+    # データフレームに変換
+    df_centrality = pd.DataFrame(degree_centrality.items(), columns=['Node', 'DegreeCentrality'])
+
+    # タイトルを持つ新しいカラムを作成
+    df_centrality['Title'] = df_centrality['Node'].map(nx.get_node_attributes(H, 'title'))
+
+    # 被引用回数を持つ新しいカラムを作成
+    df_centrality['CitationCount'] = df_centrality['Node'].map(nx.get_node_attributes(H, 'citationCount'))
+
+    # PageRankをデータフレームに追加
+    df_centrality['PageRank'] = df_centrality['Node'].map(pagerank)
+
+    # PageRankで降順ソート
+    df_centrality = df_centrality.sort_values(['PageRank'], ascending=False)
+
+    return df_centrality
+
+
+#クラスタリングアルゴリズム
+def infomap_clustering(H):
+    # 文字列IDから整数IDへのマッピングを作成
+    node_mapping = {node: idx for idx, node in enumerate(H.nodes())}
+
+    # Infomapの初期設定
+    infomapWrapper = infomap.Infomap("--directed --num-trials 1")
+
+    # 整数IDを使用してエッジを追加
+    for u, v in H.edges():
+        infomapWrapper.addLink(node_mapping[u], node_mapping[v])
+
+    # Infomap実行
+    infomapWrapper.run()
+
+    # クラスタリング結果を取得
+    tree = infomapWrapper.tree
+
+    # 結果を格納するための辞書
+    clustering_result = {}
     cluster_counts = {}
-    for cluster_id in partition.values():
-        cluster_counts[cluster_id] = cluster_counts.get(cluster_id, 0) + 1
+
+    # leafIterの代わりに直接treeをiterate
+    for node in tree:
+        if node.isLeaf():
+            # 元のノードIDを取得
+            original_id = list(node_mapping.keys())[list(node_mapping.values()).index(node.physicalId)]
+            # クラスタIDを取得
+            cluster_id = node.moduleIndex()
+            clustering_result[original_id] = cluster_id
+            cluster_counts[cluster_id] = cluster_counts.get(cluster_id, 0) + 1
+
+    # データフレームに変換
+    df_clustering = pd.DataFrame(clustering_result.items(), columns=['Node', 'Cluster'])
 
     print(f'cluster counts {cluster_counts}')
 
-    # データフレームの作成
-    cluster_df = pd.DataFrame(list(cluster_counts.items()), columns=['clusterNumber', 'numberOfNodes'])
 
-    # numberOfNodesに関して降順にソートする
-    cluster_df = cluster_df.sort_values('numberOfNodes', ascending=False).reset_index(drop=True)
+    return df_clustering, clustering_result
 
-    #ソートした結果によってclusterNumber を書き換える
-    cluster_df['newClusterNumber'] = range(len(cluster_df))
-
-
-    # 書き換えたクラスター番号に合わせて partition の cluster_id も書き換える
-    partition = {node: cluster_df.loc[cluster_df['clusterNumber'] == cluster_id, 'newClusterNumber'].iloc[0]
-                     for node, cluster_id in partition.items()}
-
-    print(cluster_df.columns)
-    cluster_df['clusterNumber'] = cluster_df['newClusterNumber']
-    cluster_df.drop(['newClusterNumber'], axis="columns")
-
-    # クラスタリング係数、平均経路長、密度を計算
-    clustering_coefficients = []
-    average_path_lengths = []
-    densities = []
-
-    for community in set(partition.values()):
-        subgraph = H.subgraph([node for node in partition if partition[node] == community])
-        clustering_coefficient = nx.average_clustering(subgraph)
-        clustering_coefficients.append(clustering_coefficient)
-
-        if nx.is_connected(subgraph):
-            average_path_length = nx.average_shortest_path_length(subgraph)
-        else:
-            average_path_length = None
-        average_path_lengths.append(average_path_length)
-
-        density = nx.density(subgraph)
-        densities.append(density)
-
-    # 既存のデータフレームにこれらの値を追加
-    cluster_df['clusteringCoefficient'] = clustering_coefficients
-    cluster_df['averagePathLength'] = average_path_lengths
-    cluster_df['density'] = densities
-    return cluster_counts, cluster_df, partition
-
-
-def prepare_traces(G, partition):
-
-    # ノードの位置を計算
-    pos = nx.spring_layout(G, seed=42)  # シードの設定
-
-
-    # ノードとエッジの描画
-    edge_x = []
-    edge_y = []
-    for edge in G.edges():
-        x0, y0 = pos[edge[0]]
-        x1, y1 = pos[edge[1]]
-        edge_x.append(x0)
-        edge_x.append(x1)
-        edge_y.append(y0)
-        edge_y.append(y1)
-
-    edge_trace = go.Scatter(x=edge_x, y=edge_y, line=dict(width=0.5, color='#888'), mode='lines', hoverinfo='none')
-
-    node_x = [pos[node][0] for node in G.nodes()]
-    node_y = [pos[node][1] for node in G.nodes()]
-    node_trace = go.Scatter(x=node_x, y=node_y, mode='markers', hoverinfo='none',
-        # marker=dict(
-        # showscale=True,
-        # colorscale='YlGnBu',
-        # color=[partition.get(node, 0) for node in G.nodes()],
-        # size=10,
-        # colorbar=dict(
-        #     thickness=15,
-        #     title='Community',
-        #     xanchor='left',
-        #     titleside='right'
-        # )
-        marker=dict(
-        showscale=False,  # カラーバーを非表示
-        colorscale='YlGnBu',
-        color=[partition.get(node, 0) for node in G.nodes()],
-        size=10)
-    )
-
-    return [edge_trace, node_trace]
-
-def plot_subgraph_of_partition(H, partition):
-    fig = go.Figure(data=prepare_traces(H, partition))
-
-    # 図のサイズを10 x 10インチに設定
-    fig.update_layout(width=10*72, height=10*72)  # 72 pixels per inch
-
-    st.plotly_chart(fig)
-
-
-def plot_cluster_i(H, cluster_id, partition):
-    # クラスタ0番に属するノードを取得
-    cluster_id_nodes = [node for node, cid in partition.items() if cid == cluster_id]
+def plot_cluster_i(H, cluster_id, df_centrality):
+    # クラスタi番に属するノードを取得
+    cluster_id_nodes = df_centrality[df_centrality['Cluster'] == cluster_id]['Node'].tolist()
     if len(cluster_id_nodes) < 1:
-        st.write("No nodes found for the given cluster ID.")
+        st.write("クラスターに論文が含まれていません。")
         return False
-    # サブグラフの作成
-    H_cluster_id = H.subgraph(cluster_id_nodes)
 
-    # 描画の準備
-    edge_trace_cluster_id, node_trace_cluster_id = prepare_traces(H_cluster_id, partition)  # 描画のための関数
 
-    # 描画
-    fig_cluster_id = go.Figure(data=[edge_trace_cluster_id, node_trace_cluster_id])
-    fig_cluster_id.update_layout(
-        width=10 * 72,
-        height=10 * 72,
-        # xaxis_title="X",  # X軸のラベルをここに設定
-        # yaxis_title="Y",   # Y軸のラベルをここに設定
-        margin = dict(l=0, r=0, b=0, t=0),  # 固定のマージン
-        xaxis = dict(showticklabels=False),  # x軸の数字を非表示
-        yaxis = dict(showticklabels=False)  # y軸の数字を非表示
-    )
+    # 入次数が1より大きいノードだけを選び出す
+    # in_degrees = H.in_degree()
+    # cluster_nodes = [node for node in cluster_nodes if in_degrees[node] > 1]
 
-    st.plotly_chart(fig_cluster_id)
-    return True
+    # Hは元のグラフ、cluster_nodesは特定のクラスターに属するノードのリスト
+    subgraph = H.subgraph(cluster_id_nodes)
+
+    # サブグラフを描画
+    plt.figure(figsize=(10, 10))
+    nx.draw(subgraph, with_labels=False)
+    # plt.title(f"Subgraph of Cluster {cluster_id}")
+
+    # Streamlitで描画
+    st.pyplot(plt)
 
 def extract_reference_indices(response):
     # 複数の数字を抽出するための正規表現を使用します。ハイフンでの範囲も考慮に入れます。
@@ -704,49 +660,29 @@ def extract_reference_indices(response):
     return transformed_numbers
 
 
-def calc_tf_idf(G, partition, cluster_id):
-    """
-    G networkx.Graph: 引用関係についての無向グラフ
-    partition dict: community_louvainによるコミュニティ分割の結果
-    cluster_id int: クラスタ番号
-    """
-    # ノードIDを取得
-    all_ids = partition.keys()
-    cluster_ids = [node for node, cid in partition.items() if cid == cluster_id]
+def calc_tf_idf(df_centrality):
+    cluster_keywords = defaultdict(list)
 
-    # ノードIDからタイトルを取得
-    all_titles = pd.Series(all_ids).map(nx.get_node_attributes(G, 'title'))
-    cluster_titles = pd.Series(cluster_ids).map(nx.get_node_attributes(G, 'title'))
+    # テキストを小文字化し、記号を取り除く
+    df_centrality['CleanText'] = df_centrality['Title'].apply(lambda x: re.sub(r'[^\w\s]', ' ', x.lower()))
 
-    # all_titlesの内容をクリーンアップ（"From:"や"To:"を削除）
-    all_titles = all_titles.dropna().str.replace("From:", "").str.replace("To:", "").str.strip()
-
-    # cluster_titlesの内容をクリーンアップ（"From:"や"To:"を削除）
-    cluster_titles = cluster_titles.str.replace("From:", "").str.replace("To:", "").str.strip()
-
-    # 文章を結合して全部小文字に
-    cluster_text = " ".join(cluster_titles.dropna()).lower()
-
-    # 全論文タイトルも全部小文字に
-    all_titles = all_titles.str.lower()
-
-    # TF-IDFベクトライザーのインスタンスを作成
+    # TfidfVectorizerの初期化、ここでストップワードを指定
     vectorizer = TfidfVectorizer(stop_words='english')
 
-    # 全論文タイトルとクラスタ内の論文タイトルを合わせて学習
-    vectorizer.fit_transform(pd.Series(all_titles.tolist() + [cluster_text]))
+    # クラスタごとにTF-IDFを計算
+    for cluster in df_centrality['Cluster'].dropna().unique():
+        texts = df_centrality[df_centrality['Cluster'] == cluster]['CleanText']
+        tfidf_matrix = vectorizer.fit_transform(texts)
+        feature_names = vectorizer.get_feature_names_out()
 
-    # クラスタ内の論文タイトルに対してTF-IDF値を計算
-    tfidf_vector = vectorizer.transform([cluster_text])
+        # 平均TF-IDFスコアを計算
+        avg_tfidf_scores = tfidf_matrix.mean(axis=0).tolist()[0]
+        sorted_indices = np.argsort(avg_tfidf_scores)[::-1]
 
-    # 特徴語を取得
-    feature_names = vectorizer.get_feature_names_out()
+        for i in range(min(5, len(sorted_indices))):
+            cluster_keywords[cluster].append(feature_names[sorted_indices[i]])
 
-    # TF-IDF値が高いキーワードを抽出
-    df = pd.DataFrame(tfidf_vector.T.todense(), index=feature_names, columns=["TF-IDF"])
-    df = df.sort_values("TF-IDF", ascending=False)
-
-    return ", ".join(df.head(5).index.to_list())
+    return cluster_keywords
 
 
 if __name__=='__main__':

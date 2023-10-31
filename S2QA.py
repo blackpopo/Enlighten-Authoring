@@ -436,45 +436,56 @@ def app():
     #cluster_df の構築
     if 'H' in st.session_state:
         with st.spinner(f"⏳ 論文のクラスタリング中です..."):
-            cluster_counts, cluster_df, partition = community_clustering(st.session_state['H'])
+            infomap_df, clustering_result = infomap_clustering(st.session_state['H'])
             #クラスタのキーワードを設定する．
+            df_centrality = page_ranking_sort(st.session_state['H'])
+            # すでに作成されている中心性のデータフレーム（df_centrality）に結合
+            df_centrality['Cluster'] = df_centrality['Node'].map(clustering_result)
+            #クラスターごとの keyword を作成
+            cluster_keywords = calc_tf_idf(df_centrality)
+            st.session_state['df_centrality'] = df_centrality
+            st.session_state['infomap_df'] = infomap_df
+            st.session_state['cluster_keywords'] = cluster_keywords
 
-            cluster_df.loc[:, 'clusterKeywords'] = cluster_df['clusterNumber'].apply(lambda cluster_id: calc_tf_idf(st.session_state['G'], partition, cluster_id))
-            st.session_state['cluster_counts'] = cluster_counts
+            cluster_df = df_centrality.groupby('Cluster').agg({
+                'Node': 'count',
+                'DegreeCentrality': 'mean',
+                'PageRank': 'mean'
+            })
+            cluster_df["ClusterKeywords"] = cluster_df.index.map(lambda x: ', '.join(cluster_keywords[x]))
             st.session_state['cluster_df'] = cluster_df
-            st.session_state['partition'] = partition
+
             #Cluster ID から Paper ID のリストを取得するリスト
             cluster_id_paper_ids = defaultdict(list)
-            for key, value in partition.items():
-                cluster_id_paper_ids[value].append(key)
+            for paper_id, cluster_id in zip(infomap_df['Node'].values, infomap_df['Cluster'].values):
+                cluster_id_paper_ids[cluster_id].append(paper_id)
             st.session_state['cluster_id_to_paper_ids'] = cluster_id_paper_ids
 
     if 'cluster_df' in st.session_state.keys():
-        display_clusters = st.session_state['cluster_df'][st.session_state['cluster_df']['numberOfNodes'] > 10]
-        cluster_candidates = display_clusters['clusterNumber'].values
-        cluster_df = cluster_df.sort_values('numberOfNodes', ascending=False)
-        display_clusters.set_index('clusterNumber', inplace=True)
+        display_clusters = st.session_state['cluster_df'][st.session_state['cluster_df']['Node'] > 10]
+        cluster_candidates = display_clusters.index.tolist()
+        display_clusters = display_clusters.sort_values('Node', ascending=False)
         for cluster_number in display_clusters.index:
             selected_paper_ids = st.session_state['cluster_id_to_paper_ids'][cluster_number]
             extracted_df = st.session_state['papers_df'][st.session_state['papers_df']['paperId'].isin(selected_paper_ids)]
             display_clusters.loc[cluster_number, 'netNumberOfNodes'] = len(extracted_df)
 
         rename_columns = {
-                'clusterNumber': 'Cluster ID',
-                'numberOfNodes': "Number of Papers",
-                "clusterKeywords" : "Keywords"
+                'Node': "Number of Papers",
+                "ClusterKeywords" : "Keywords"
             }
         display_clusters.rename(columns= rename_columns, inplace=True)
 
-        display_dataframe(display_clusters, f'クラスタに含まれる文献数とキーワード', len(display_clusters), list(rename_columns.values())[1:])
+        display_dataframe(display_clusters, f'クラスタに含まれる文献数とキーワード', len(display_clusters), list(rename_columns.values()))
 
         st.session_state['cluster_candidates'] = cluster_candidates
         st.session_state['cluster_keywords'] = display_clusters['Keywords'].values
 
-    # 特定のクラスタについて,  nodeをすべて取り出す
-    # 取り出した node を持つ列について、
 
-    if 'cluster_candidates' in st.session_state and 'H' in st.session_state and 'G' in st.session_state and 'cluster_id_to_paper_ids' in st.session_state and 'partition' in st.session_state:
+    # # 特定のクラスタについて,  nodeをすべて取り出す
+    # # 取り出した node を持つ列について、
+    #
+    if 'cluster_candidates' in st.session_state and 'H' in st.session_state and 'G' in st.session_state and 'cluster_id_to_paper_ids' in st.session_state :
         assert len(st.session_state['cluster_candidates']) == len(st.session_state['cluster_keywords']), f"{len(st.session_state['cluster_candidates'])} : {len(st.session_state['cluster_keywords'])}"
         detailed_cluster_dict = {f'{cluster_number} : {cluster_keyword}' : cluster_number for cluster_number, cluster_keyword in zip(st.session_state['cluster_candidates'] , st.session_state['cluster_keywords'])}
         selected_number_key = st.selectbox('詳細を表示するクラスタ番号を選んでください。', detailed_cluster_dict.keys())
@@ -504,7 +515,7 @@ def app():
         display_spaces(2)
         display_description(f'クラスタ番号{selected_number}の引用ネットワーク', size=3)
         with st.spinner(f"⏳ クラスタ番号 {selected_number} のグラフを描画中です..."):
-            plot_cluster_i(st.session_state['H'], selected_number, st.session_state['partition'])
+            plot_cluster_i(st.session_state['H'], selected_number, st.session_state['df_centrality'])
 
     #特定のクラスタによる草稿の編集
 
@@ -512,7 +523,6 @@ def app():
         display_spaces(2)
         display_description(f'AI クラスタレビュー生成', size=2)
 
-        selected_number = st.session_state['selected_number']
         cluster_df_detail = st.session_state['cluster_df_detail']
 
         st.session_state['number_of_cluster_review_papers'] = st.slider(
