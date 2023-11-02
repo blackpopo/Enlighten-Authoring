@@ -233,6 +233,12 @@ def app():
     # if refresh_button:
     #     st.experimental_rerun()
 
+    debug_mode = st.checkbox("Debug Mode", value=True)
+    if debug_mode:
+        st.session_state['debug'] = True
+    else:
+        st.session_state['debug'] = False
+
     #Queryの管理
     display_title()
 
@@ -268,7 +274,7 @@ def app():
     if query and get_papers_button:
         total_limit = 100
         with st.spinner("⏳ Semantic Scholar　から論文を取得しています..."):
-            if os.path.exists(os.path.join(data_folder, f"{safe_filename(encode_to_filename(query))}.csv")):
+            if os.path.exists(os.path.join(data_folder, f"{safe_filename(encode_to_filename(query))}.csv")) and st.session_state['debug']:
                 display_description(f"{query} は Semantic Scholar で検索済みです。\n")
                 papers_df = load_papers_dataframe(query)
                 all_papers_df = load_papers_dataframe(query + '_all', [ 'authors'], ['title', 'abstract', 'year'])
@@ -436,15 +442,15 @@ def app():
     #cluster_df の構築
     if 'H' in st.session_state:
         with st.spinner(f"⏳ 論文のクラスタリング中です..."):
-            infomap_df, clustering_result = infomap_clustering(st.session_state['H'])
-            #クラスタのキーワードを設定する．
+            cluster_counts, cluster_df, partition, clustering_result = community_clustering(st.session_state['H'])
+            #ページランクによるソートアルゴリズム
             df_centrality = page_ranking_sort(st.session_state['H'])
             # すでに作成されている中心性のデータフレーム（df_centrality）に結合
             df_centrality['Cluster'] = df_centrality['Node'].map(clustering_result)
             #クラスターごとの keyword を作成
             cluster_keywords = calc_tf_idf(df_centrality)
             st.session_state['df_centrality'] = df_centrality
-            st.session_state['infomap_df'] = infomap_df
+
             st.session_state['cluster_keywords'] = cluster_keywords
 
             cluster_df = df_centrality.groupby('Cluster').agg({
@@ -457,8 +463,8 @@ def app():
 
             #Cluster ID から Paper ID のリストを取得するリスト
             cluster_id_paper_ids = defaultdict(list)
-            for paper_id, cluster_id in zip(infomap_df['Node'].values, infomap_df['Cluster'].values):
-                cluster_id_paper_ids[cluster_id].append(paper_id)
+            for key, value in partition.items():
+                cluster_id_paper_ids[value].append(key)
             st.session_state['cluster_id_to_paper_ids'] = cluster_id_paper_ids
 
     if 'cluster_df' in st.session_state.keys():

@@ -19,6 +19,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 import infomap
 from collections import defaultdict
 import numpy as np
+import community as community_louvain # python-louvain packageをインストールする必要があるわ
 
 OPENAI_API_KEY = st.secrets['OPENAI_API_KEY']
 DEEPL_API_KEY = st.secrets['DEEPL_API_KEY']
@@ -571,67 +572,126 @@ def page_ranking_sort(H):
 
 
 #クラスタリングアルゴリズム
-def infomap_clustering(H):
-    # 文字列IDから整数IDへのマッピングを作成
-    node_mapping = {node: idx for idx, node in enumerate(H.nodes())}
+def community_clustering(H):
+    # 最適なモジュラリティを持つコミュニティを見つける
+    partition = community_louvain.best_partition(H, random_state=42)
 
-    # Infomapの初期設定
-    infomapWrapper = infomap.Infomap("--directed --num-trials 1")
-
-    # 整数IDを使用してエッジを追加
-    for u, v in H.edges():
-        infomapWrapper.addLink(node_mapping[u], node_mapping[v])
-
-    # Infomap実行
-    infomapWrapper.run()
-
-    # クラスタリング結果を取得
-    tree = infomapWrapper.tree
-
-    # 結果を格納するための辞書
-    clustering_result = {}
+    # クラスタのノード数をカウント
     cluster_counts = {}
-
-    # leafIterの代わりに直接treeをiterate
-    for node in tree:
-        if node.isLeaf():
-            # 元のノードIDを取得
-            original_id = list(node_mapping.keys())[list(node_mapping.values()).index(node.physicalId)]
-            # クラスタIDを取得
-            cluster_id = node.moduleIndex()
-            clustering_result[original_id] = cluster_id
-            cluster_counts[cluster_id] = cluster_counts.get(cluster_id, 0) + 1
-
-    # データフレームに変換
-    df_clustering = pd.DataFrame(clustering_result.items(), columns=['Node', 'Cluster'])
+    for cluster_id in partition.values():
+        cluster_counts[cluster_id] = cluster_counts.get(cluster_id, 0) + 1
 
     print(f'cluster counts {cluster_counts}')
 
+    # データフレームの作成
+    cluster_df = pd.DataFrame(list(cluster_counts.items()), columns=['clusterNumber', 'numberOfNodes'])
 
-    return df_clustering, clustering_result
+    clustering_result = {key: value for key, value in partition.items()}
 
-def plot_cluster_i(H, cluster_id, df_centrality):
-    # クラスタi番に属するノードを取得
-    cluster_id_nodes = df_centrality[df_centrality['Cluster'] == cluster_id]['Node'].tolist()
+    # クラスタリング係数、平均経路長、密度を計算
+    clustering_coefficients = []
+    average_path_lengths = []
+    densities = []
+
+    for community in set(partition.values()):
+        subgraph = H.subgraph([node for node in partition if partition[node] == community])
+        clustering_coefficient = nx.average_clustering(subgraph)
+        clustering_coefficients.append(clustering_coefficient)
+
+        if nx.is_connected(subgraph):
+            average_path_length = nx.average_shortest_path_length(subgraph)
+        else:
+            average_path_length = None
+        average_path_lengths.append(average_path_length)
+
+        density = nx.density(subgraph)
+        densities.append(density)
+
+    # 既存のデータフレームにこれらの値を追加
+    cluster_df['clusteringCoefficient'] = clustering_coefficients
+    cluster_df['averagePathLength'] = average_path_lengths
+    cluster_df['density'] = densities
+    return cluster_counts, cluster_df, partition, clustering_result
+
+
+def prepare_traces(G, partition):
+
+    # ノードの位置を計算
+    pos = nx.spring_layout(G, seed=42)  # シードの設定
+
+
+    # ノードとエッジの描画
+    edge_x = []
+    edge_y = []
+    for edge in G.edges():
+        x0, y0 = pos[edge[0]]
+        x1, y1 = pos[edge[1]]
+        edge_x.append(x0)
+        edge_x.append(x1)
+        edge_y.append(y0)
+        edge_y.append(y1)
+
+    edge_trace = go.Scatter(x=edge_x, y=edge_y, line=dict(width=0.5, color='#888'), mode='lines', hoverinfo='none')
+
+    node_x = [pos[node][0] for node in G.nodes()]
+    node_y = [pos[node][1] for node in G.nodes()]
+    node_trace = go.Scatter(x=node_x, y=node_y, mode='markers', hoverinfo='none',
+        # marker=dict(
+        # showscale=True,
+        # colorscale='YlGnBu',
+        # color=[partition.get(node, 0) for node in G.nodes()],
+        # size=10,
+        # colorbar=dict(
+        #     thickness=15,
+        #     title='Community',
+        #     xanchor='left',
+        #     titleside='right'
+        # )
+        marker=dict(
+        showscale=False,  # カラーバーを非表示
+        colorscale='YlGnBu',
+        color=[partition.get(node, 0) for node in G.nodes()],
+        size=10)
+    )
+
+    return [edge_trace, node_trace]
+
+def plot_subgraph_of_partition(H, partition):
+    fig = go.Figure(data=prepare_traces(H, partition))
+
+    # 図のサイズを10 x 10インチに設定
+    fig.update_layout(width=10*72, height=10*72)  # 72 pixels per inch
+
+    st.plotly_chart(fig)
+
+
+def plot_cluster_i(H, cluster_id, partition):
+    # クラスタ0番に属するノードを取得
+    cluster_id_nodes = [node for node, cid in partition.items() if cid == cluster_id]
     if len(cluster_id_nodes) < 1:
-        st.write("クラスターに論文が含まれていません。")
+        st.write("No nodes found for the given cluster ID.")
         return False
+    # サブグラフの作成
+    H_cluster_id = H.subgraph(cluster_id_nodes)
 
+    # 描画の準備
+    edge_trace_cluster_id, node_trace_cluster_id = prepare_traces(H_cluster_id, partition)  # 描画のための関数
 
-    # 入次数が1より大きいノードだけを選び出す
-    # in_degrees = H.in_degree()
-    # cluster_nodes = [node for node in cluster_nodes if in_degrees[node] > 1]
+    # 描画
+    fig_cluster_id = go.Figure(data=[edge_trace_cluster_id, node_trace_cluster_id])
+    fig_cluster_id.update_layout(
+        width=10 * 72,
+        height=10 * 72,
+        # xaxis_title="X",  # X軸のラベルをここに設定
+        # yaxis_title="Y",   # Y軸のラベルをここに設定
+        margin = dict(l=0, r=0, b=0, t=0),  # 固定のマージン
+        xaxis = dict(showticklabels=False),  # x軸の数字を非表示
+        yaxis = dict(showticklabels=False)  # y軸の数字を非表示
+    )
 
-    # Hは元のグラフ、cluster_nodesは特定のクラスターに属するノードのリスト
-    subgraph = H.subgraph(cluster_id_nodes)
+    st.plotly_chart(fig_cluster_id)
+    return True
 
-    # サブグラフを描画
-    plt.figure(figsize=(10, 10))
-    nx.draw(subgraph, with_labels=False)
-    # plt.title(f"Subgraph of Cluster {cluster_id}")
-
-    # Streamlitで描画
-    st.pyplot(plt)
 
 def extract_reference_indices(response):
     # 複数の数字を抽出するための正規表現を使用します。ハイフンでの範囲も考慮に入れます。
