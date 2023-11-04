@@ -16,7 +16,6 @@ import networkx as nx
 import openai
 import streamlit as st
 from sklearn.feature_extraction.text import TfidfVectorizer
-import infomap
 from collections import defaultdict
 import numpy as np
 import community as community_louvain # python-louvain packageをインストールする必要があるわ

@@ -240,9 +240,9 @@ def app():
 
     st.session_state['debug'] = False
 
-    debug_mode = st.checkbox("Debug Mode", value=True)
-    if debug_mode:
-        st.session_state['debug'] = True
+    # debug_mode = st.checkbox("Debug Mode", value=True)
+    # if debug_mode:
+    #     st.session_state['debug'] = True
 
     #Queryの管理
     display_title()
@@ -594,7 +594,6 @@ def app():
                 selected_cluster_paper_ids = cluster_df_detail['Node'].values.tolist()[:st.session_state['number_of_cluster_review_papers']]
                 result_list, result_dict = get_papers_from_ids(selected_cluster_paper_ids)
                 selected_papers = set_paper_information(pd.DataFrame(result_dict))
-                st.session_state['cluster_papers_df'] = selected_papers
                 cluster_response, reference_links, caption, draft_references = title_review_papers(selected_papers, st.session_state['query'], model = 'gpt-4-32k', language=toggle)
 
                 display_description(caption)
@@ -622,23 +621,26 @@ def app():
     display_spaces(2)
 
     # #次の Review 内容の表示
-    if 'cluster_papers_df' in st.session_state and 'cluster_review_response' in st.session_state  and 'cluster_references_list' in st.session_state and 'number_of_cluster_review_papers' in st.session_state:
+    if 'cluster_df_detail' in st.session_state and 'cluster_review_response' in st.session_state  and 'cluster_references_list' in st.session_state and 'number_of_cluster_review_papers' in st.session_state:
         next_cluster_review_button = st.button(f"次の上位 {st.session_state['number_of_cluster_review_papers']} 件の論文によるクラスタレビュー生成。(時間がかかります)")
         if next_cluster_review_button:
             if not 'next_number_of_cluster_review_papers' in st.session_state:
                 st.session_state['next_number_of_cluster_review_papers'] = st.session_state['number_of_cluster_review_papers'] * 2
             elif ('next_number_of_cluster_review_papers' in st.session_state) and (
-                    st.session_state['next_number_of_cluster_review_papers'] < len(st.session_state['cluster_papers_df'])):
+                    st.session_state['next_number_of_cluster_review_papers'] < len(st.session_state['cluster_df_detail'])):
                 st.session_state['next_number_of_cluster_review_papers'] = st.session_state['number_of_cluster_review_papers'] + \
                                                                    st.session_state['next_number_of_cluster_review_papers']
             else:
                 st.session_state['next_number_of_cluster_review_papers'] = st.session_state['number_of_cluster_review_papers']
 
-            button_title = f"クラスタ内上位 {st.session_state['next_number_of_cluster_review_papers'] - st.session_state['number_of_cluster_review_papers'] + 1} 件目から {min(st.session_state['next_number_of_cluster_review_papers'], len(st.session_state['cluster_papers_df']))} 件目"
+            button_title = f"クラスタ内上位 {st.session_state['next_number_of_cluster_review_papers'] - st.session_state['number_of_cluster_review_papers'] + 1} 件目から {min(st.session_state['next_number_of_cluster_review_papers'], len(st.session_state['cluster_df_detail']))} 件目"
 
             with st.spinner(f"⏳ {button_title} の論文を使用した AI によるクラスタレビューの生成中です。 お待ち下さい..."):
-                response, links, caption, draft_references = title_review_papers(
-                    st.session_state['cluster_papers_df'][st.session_state['next_number_of_cluster_review_papers'] - st.session_state['number_of_cluster_review_papers']: st.session_state['next_number_of_cluster_review_papers']],
+                selected_cluster_paper_ids = st.session_state['cluster_df_detail']['Node'].values.tolist()[st.session_state['next_number_of_cluster_review_papers'] - st.session_state['number_of_cluster_review_papers']:st.session_state['next_number_of_cluster_review_papers']]
+                result_list, result_dict = get_papers_from_ids(selected_cluster_paper_ids)
+                selected_papers = set_paper_information(pd.DataFrame(result_dict))
+
+                response, links, caption, draft_references = title_review_papers(selected_papers,
                     st.session_state['query'], model='gpt-4-32k', language=st.session_state['cluster_review_toggle'] )
                 st.session_state['cluster_review_response'] = response
                 st.session_state['cluster_review_caption'] = f"{button_title}の論文による" + caption
