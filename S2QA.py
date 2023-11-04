@@ -619,7 +619,7 @@ def app():
 
     # #次の Review 内容の表示
     if 'cluster_papers_df' in st.session_state and 'cluster_response'in st.session_state  and 'cluster_references_list' in st.session_state:
-        next_cluster_review_button = st.button(f"次の上位 {st.session_state['number_of_cluster_review_papers']} 件の論文によるレビュー生成。(時間がかかります)")
+        next_cluster_review_button = st.button(f"次の上位 {st.session_state['number_of_cluster_review_papers']} 件の論文によるクラスタレビュー生成。(時間がかかります)")
         if next_cluster_review_button:
             if not 'next_number_of_cluster_review_papers' in st.session_state:
                 st.session_state['next_number_of_cluster_review_papers'] = st.session_state['number_of_cluster_review_papers'] * 2
@@ -632,7 +632,7 @@ def app():
 
             button_title = f"上位 {st.session_state['next_number_of_cluster_review_papers'] - st.session_state['number_of_cluster_review_papers'] + 1} 件目から {min(st.session_state['next_number_of_cluster_review_papers'], len(st.session_state['papers_df']))} 件目"
 
-            with st.spinner(f"⏳ {button_title} の論文を使用した AI によるレビューの生成中です。 お待ち下さい..."):
+            with st.spinner(f"⏳ {button_title} の論文を使用した AI によるクラスタレビューの生成中です。 お待ち下さい..."):
                 response, links, caption, draft_references = title_review_papers(
                     st.session_state['papers_df'][st.session_state['next_number_of_cluster_review_papers'] - st.session_state['number_of_cluster_review_papers']: st.session_state['next_number_of_cluster_review_papers']],
                     st.session_state['query'], model='gpt-4-32k', language=st.session_state['cluster_review_toggle'] )
