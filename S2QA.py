@@ -634,7 +634,7 @@ def app():
             else:
                 st.session_state['next_number_of_cluster_review_papers'] = st.session_state['number_of_cluster_review_papers']
 
-            button_title = f"クラスタ内上位 {st.session_state['next_number_of_cluster_review_papers'] - st.session_state['number_of_cluster_review_papers'] + 1} 件目から {min(st.session_state['next_number_of_cluster_review_papers'], len(st.session_state['papers_df']))} 件目"
+            button_title = f"クラスタ内上位 {st.session_state['next_number_of_cluster_review_papers'] - st.session_state['number_of_cluster_review_papers'] + 1} 件目から {min(st.session_state['next_number_of_cluster_review_papers'], len(st.session_state['cluster_papers_df']))} 件目"
 
             with st.spinner(f"⏳ {button_title} の論文を使用した AI によるクラスタレビューの生成中です。 お待ち下さい..."):
                 response, links, caption, draft_references = title_review_papers(
