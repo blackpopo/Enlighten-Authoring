@@ -223,7 +223,7 @@ def dump_logs(query, response, success=True):
 
 def reset_session(session_state):
     keys_to_remove = ['papers', 'papers_df', 'H', 'cluster_candidates', 'cluster_df', 'selected_number',
-                      'cluster_response', 'summary_response']
+                      'cluster_review_response', 'summary_response']
     for key in keys_to_remove:
         if key in session_state:
             session_state.pop(key)
@@ -342,7 +342,7 @@ def app():
         if topk_review_button:
             with st.spinner("⏳ AIによるレビューの生成中です。 お待ち下さい..."):
                 response, links, caption, draft_references = title_review_papers(st.session_state['papers_df'][:st.session_state['number_of_review_papers']], st.session_state['query'], model = 'gpt-4-32k', language=toggle)
-                st.session_state['topk_review_caption'] = caption
+                st.session_state['topk_review_caption'] = "上位" + caption
                 st.session_state['topk_review_response'] = response
 
                 reference_indices = extract_reference_indices(response)
@@ -383,7 +383,7 @@ def app():
                 response, links, caption, draft_references = title_review_papers(
                     st.session_state['papers_df'][st.session_state['next_number_of_review_papers'] - st.session_state['number_of_review_papers']: st.session_state['next_number_of_review_papers']],
                     st.session_state['query'], model='gpt-4-32k', language=st.session_state['topk_review_toggle'] )
-                st.session_state['topk_review_caption'] = f"{button_title}の論文の中から取得した" + caption
+                st.session_state['topk_review_caption'] = f"{button_title}の論文による" + caption
                 st.session_state['topk_review_response'] = response
 
                 reference_indices = extract_reference_indices(response)
@@ -584,6 +584,7 @@ def app():
                                                                       max_value=min(100, len(cluster_df_detail)), step=1)
 
         toggle = display_language_toggle(f"クラスタレビュー生成")
+        st.session_state['cluster_review_toggle'] = toggle
 
         #クラスタリングの結果のレビュー
         selected_review_button = st.button(f"クラスタ内上位{st.session_state['number_of_cluster_review_papers']}の論文レビュー生成。(時間がかかります)", )
@@ -598,7 +599,8 @@ def app():
 
                 display_description(caption)
                 display_spaces(1)
-                st.session_state['cluster_response'] = cluster_response
+                st.session_state['cluster_review_response'] = cluster_response
+                st.session_state['cluster_review_caption'] = f"クラスタ内上位{caption}"
 
             #response に含まれている Referenceの表示
                 reference_indices = extract_reference_indices(cluster_response)
@@ -608,8 +610,10 @@ def app():
                 st.session_state['cluster_draft_references_list'] = draft_references_list
 
 
-    if 'cluster_response' in st.session_state and 'cluster_references_list' in st.session_state  and 'selected_number' in st.session_state:
-        display_description(st.session_state['cluster_response'])
+    if 'cluster_review_response' in st.session_state and 'cluster_references_list' in st.session_state  and 'selected_number' in st.session_state:
+        display_description(st.session_state['cluster_review_caption'], size=5)
+        display_spaces(1)
+        display_description(st.session_state['cluster_review_response'])
 
         if len(st.session_state['cluster_references_list']) > 0:
             display_description('参考文献リスト', size=6)
@@ -618,25 +622,26 @@ def app():
     display_spaces(2)
 
     # #次の Review 内容の表示
-    if 'cluster_papers_df' in st.session_state and 'cluster_response'in st.session_state  and 'cluster_references_list' in st.session_state:
+    if 'cluster_papers_df' in st.session_state and 'cluster_review_response' in st.session_state  and 'cluster_references_list' in st.session_state and 'number_of_cluster_review_papers' in st.session_state:
         next_cluster_review_button = st.button(f"次の上位 {st.session_state['number_of_cluster_review_papers']} 件の論文によるクラスタレビュー生成。(時間がかかります)")
         if next_cluster_review_button:
             if not 'next_number_of_cluster_review_papers' in st.session_state:
                 st.session_state['next_number_of_cluster_review_papers'] = st.session_state['number_of_cluster_review_papers'] * 2
             elif ('next_number_of_cluster_review_papers' in st.session_state) and (
-                    st.session_state['next_number_of_cluster_review_papers'] < len(st.session_state['papers_df'])):
+                    st.session_state['next_number_of_cluster_review_papers'] < len(st.session_state['cluster_papers_df'])):
                 st.session_state['next_number_of_cluster_review_papers'] = st.session_state['number_of_cluster_review_papers'] + \
                                                                    st.session_state['next_number_of_cluster_review_papers']
             else:
                 st.session_state['next_number_of_cluster_review_papers'] = st.session_state['number_of_cluster_review_papers']
 
-            button_title = f"上位 {st.session_state['next_number_of_cluster_review_papers'] - st.session_state['number_of_cluster_review_papers'] + 1} 件目から {min(st.session_state['next_number_of_cluster_review_papers'], len(st.session_state['papers_df']))} 件目"
+            button_title = f"クラスタ内上位 {st.session_state['next_number_of_cluster_review_papers'] - st.session_state['number_of_cluster_review_papers'] + 1} 件目から {min(st.session_state['next_number_of_cluster_review_papers'], len(st.session_state['papers_df']))} 件目"
 
             with st.spinner(f"⏳ {button_title} の論文を使用した AI によるクラスタレビューの生成中です。 お待ち下さい..."):
                 response, links, caption, draft_references = title_review_papers(
-                    st.session_state['papers_df'][st.session_state['next_number_of_cluster_review_papers'] - st.session_state['number_of_cluster_review_papers']: st.session_state['next_number_of_cluster_review_papers']],
+                    st.session_state['cluster_papers_df'][st.session_state['next_number_of_cluster_review_papers'] - st.session_state['number_of_cluster_review_papers']: st.session_state['next_number_of_cluster_review_papers']],
                     st.session_state['query'], model='gpt-4-32k', language=st.session_state['cluster_review_toggle'] )
-                st.session_state['cluster_response'] = response
+                st.session_state['cluster_review_response'] = response
+                st.session_state['cluster_review_caption'] = f"{button_title}の論文による" + caption
 
                 reference_indices = extract_reference_indices(response)
                 references_list = [reference_text for i, reference_text in enumerate(links) if i in reference_indices]
@@ -645,10 +650,11 @@ def app():
                 st.session_state['cluster_draft_references_list'] = draft_references_list
                 st.experimental_rerun()
 
+
         #終了時にドラフトを入力できるようにする
     display_spaces(2)
 
-    if 'number_of_cluster_review_papers' in st.session_state and 'cluster_response' in st.session_state and 'cluster_draft_references_list' in st.session_state:
+    if 'number_of_cluster_review_papers' in st.session_state and 'cluster_review_response' in st.session_state and 'cluster_draft_references_list' in st.session_state:
         display_description(f"文章の草稿を入力してください。クラスタ内上位 {st.session_state['number_of_cluster_review_papers']} 件のレビューによりエビデンスを付与します。", 3)
         #ドラフトの入力部分
         draft_text = st.text_area(label='review draft input filed.', placeholder='Past your draft of review here!', label_visibility='hidden', height=300)
@@ -659,7 +665,7 @@ def app():
 
         if write_summary_button and len(draft_text) > 0:
             with st.spinner("⏳ AIによるエビデンスの付与中です。 お待ち下さい..."):
-                summary_response, caption = summery_writer_with_draft(st.session_state['cluster_response'], draft_text, st.session_state['cluster_draft_references_list'], model = 'gpt-4-32k', language=toggle)
+                summary_response, caption = summery_writer_with_draft(st.session_state['cluster_review_response'], draft_text, st.session_state['cluster_draft_references_list'], model = 'gpt-4-32k', language=toggle)
                 display_description(caption)
                 display_spaces(1)
 
