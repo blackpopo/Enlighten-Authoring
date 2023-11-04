@@ -43,6 +43,7 @@ def display_cluster_dataframe(df, title, topk):
             return journal_info.get('name', '')
         except Exception as e:
             # 文字列が辞書として評価できない場合やキーが存在しない場合は空文字列を返します
+            # print(f'get journal name error {e}')
             return ""
 
     # 'journal'列の各エントリにget_journal_name関数を適用して新しい列を作成します
@@ -227,17 +228,21 @@ def reset_session(session_state):
         if key in session_state:
             session_state.pop(key)
 
+def all_reset_session(session_state, except_key):
+    for key in session_state:
+        if key not in except_key:
+            session_state.pop(key)
 
 def app():
     # refresh_button = st.button('Refresh button')
     # if refresh_button:
     #     st.experimental_rerun()
 
+    st.session_state['debug'] = False
+
     debug_mode = st.checkbox("Debug Mode", value=True)
     if debug_mode:
         st.session_state['debug'] = True
-    else:
-        st.session_state['debug'] = False
 
     #Queryの管理
     display_title()
@@ -264,27 +269,21 @@ def app():
 
     display_spaces(1)
 
-    #更新ボタンが押されているときに再度検索するための設定
-    if 'update_papers' in st.session_state and st.session_state['update_papers']:
-        get_papers_button = True
-        display_description("Semantic Scholar　で検索した論文を更新します")
-        st.session_state.pop('update_papers')
-
     # 論文の取得, 結果の保存, 昔の検索結果の読み込み
     if query and get_papers_button:
         total_limit = 100
+        all_reset_session(session_state=st.session_state, except_key=['debug', 'query', 'year'])
         with st.spinner("⏳ Semantic Scholar　から論文を取得しています..."):
             if os.path.exists(os.path.join(data_folder, f"{safe_filename(encode_to_filename(query))}.csv")) and st.session_state['debug']:
-                display_description(f"{query} は Semantic Scholar で検索済みです。\n")
+                display_description(f"{query} を Semantic Scholar で検索済みです。\n")
                 papers_df = load_papers_dataframe(query)
-                all_papers_df = load_papers_dataframe(query + '_all', [ 'authors'], ['title', 'abstract', 'year'])
+                all_papers_df = load_papers_dataframe(query + '_all', [ 'authors', 'citationStyles'], ['title', 'abstract', 'year'])
                 total = None
-                st.session_state['update_papers'] = False
             else:
-                display_description(f"{query} は Semantic Scholar で検索中です。\n")
+                display_description(f"{query} を Semantic Scholar で検索中です。\n")
                 #Semantic Scholar による論文の保存
                 #良い論文の100件の取得
-                papers, total = get_papers(query, st.session_state['year'], total_limit=total_limit)
+                papers, total = get_papers(query, st.session_state['year'], limit=20, total_limit=total_limit)
                 # config への保存
                 st.session_state['papers'] = papers
                 if len(st.session_state['papers']) > 0:
@@ -299,14 +298,15 @@ def app():
             st.experimental_rerun()
 
         #csvの保存
-        if not os.path.exists(os.path.join(data_folder, f"{safe_filename(encode_to_filename(query))}.csv")):
+        if not os.path.exists(os.path.join(data_folder, f"{safe_filename(encode_to_filename(query))}.csv")) and st.session_state['debug']:
             save_papers_dataframe(papers_df, query)
             save_papers_dataframe(all_papers_df, query + '_all' )
             papers_df = load_papers_dataframe(query)
-            all_papers_df = load_papers_dataframe(query + '_all', ['authors'], ['title', 'abstract', 'year'])
+            all_papers_df = load_papers_dataframe(query + '_all', ['authors', 'citationStyles'], ['title', 'abstract', 'year'])
 
-        st.session_state['all_papers_df'] = all_papers_df
-        st.session_state['papers_df'] = papers_df
+        print(f"all papers df size {len(all_papers_df)} papers df size {len(papers_df)}")
+        st.session_state['all_papers_df'] = set_paper_information(all_papers_df)
+        st.session_state['papers_df'] = set_paper_information(papers_df)
 
         display_spaces(2)
 
@@ -327,21 +327,6 @@ def app():
 
     display_spaces(2)
 
-    # 論文の更新．ファイルの削除と再検索のための設定を行っている．
-    if 'update_papers' in st.session_state:
-        display_description("Semantic Scholar で検索した論文を更新します。")
-        update_button = st.button("論文の更新")
-        if update_button:
-            csv_path = os.path.join(data_folder, f"{safe_filename(encode_to_filename(query))}.csv")
-            all_csv_path = os.path.join(data_folder, f"{safe_filename(encode_to_filename(query))}_all.csv")
-            if os.path.exists(csv_path):
-                #保存してあるファイルの削除．
-                os.remove(csv_path)
-            if os.path.exists(all_csv_path):
-                os.remove(all_csv_path)
-            st.session_state['update_papers'] = True
-            st.experimental_rerun()
-
 
     if 'papers_df' in st.session_state:
         display_spaces(2)
@@ -351,18 +336,20 @@ def app():
             f"レビューに使用する論文数を選択してください。",   min_value=1, value=20,  max_value=min(100, len(st.session_state['papers_df'])), step=1)
 
         toggle = display_language_toggle(f'レビュー生成')
+        st.session_state['topk_review_toggle'] = toggle
 
-        topk_review_button = st.button(f"上位 {st.session_state['number_of_review_papers']} 件の論文レビュー生成。(時間がかかります)",)
+        topk_review_button = st.button(f"上位 {st.session_state['number_of_review_papers']} 件の論文によるレビュー生成。(時間がかかります)",)
         if topk_review_button:
             with st.spinner("⏳ AIによるレビューの生成中です。 お待ち下さい..."):
-                response, titles, caption = title_review_papers(st.session_state['papers_df'][:st.session_state['number_of_review_papers']], st.session_state['query'], model = 'gpt-4-32k', language=toggle)
+                response, links, caption, draft_references = title_review_papers(st.session_state['papers_df'][:st.session_state['number_of_review_papers']], st.session_state['query'], model = 'gpt-4-32k', language=toggle)
                 st.session_state['topk_review_caption'] = caption
                 st.session_state['topk_review_response'] = response
-                st.session_state['topk_review_titles'] = titles
 
                 reference_indices = extract_reference_indices(response)
-                references_list = [reference_text for i, reference_text in enumerate(titles) if i in reference_indices]
+                references_list = [reference_text for i, reference_text in enumerate(links) if i in reference_indices]
+                draft_references_list = [reference_text for i, reference_text in enumerate(draft_references) if i in reference_indices]
                 st.session_state['topk_references_list'] = references_list
+                st.session_state['topk_draft_references_list'] = draft_references_list
 
     #レビュー内容の常時表示
     if 'papers_df' in st.session_state and 'topk_review_response' in st.session_state and 'topk_review_caption' in st.session_state and 'topk_references_list' in st.session_state:
@@ -375,8 +362,41 @@ def app():
             display_references_list(st.session_state['topk_references_list'])
 
 
+    display_spaces(1)
+
+    #次の Review 内容の表示
+    if 'papers_df' in st.session_state and 'topk_review_response'in st.session_state and 'topk_review_caption' in st.session_state and 'topk_references_list' in st.session_state:
+        next_topk_review_button = st.button(f"次の上位 {st.session_state['number_of_review_papers']} 件の論文によるレビュー生成。(時間がかかります)")
+        if next_topk_review_button:
+            if not 'next_number_of_review_papers' in st.session_state:
+                st.session_state['next_number_of_review_papers'] = st.session_state['number_of_review_papers'] * 2
+            elif ('next_number_of_review_papers' in st.session_state) and (
+                    st.session_state['next_number_of_review_papers'] < len(st.session_state['papers_df'])):
+                st.session_state['next_number_of_review_papers'] = st.session_state['number_of_review_papers'] + \
+                                                                   st.session_state['next_number_of_review_papers']
+            else:
+                st.session_state['next_number_of_review_papers'] = st.session_state['number_of_review_papers']
+
+            button_title = f"上位 {st.session_state['next_number_of_review_papers'] - st.session_state['number_of_review_papers'] + 1} 件目から {min(st.session_state['next_number_of_review_papers'], len(st.session_state['papers_df']))} 件目"
+
+            with st.spinner(f"⏳ {button_title} の論文を使用した AI によるレビューの生成中です。 お待ち下さい..."):
+                response, links, caption, draft_references = title_review_papers(
+                    st.session_state['papers_df'][st.session_state['next_number_of_review_papers'] - st.session_state['number_of_review_papers']: st.session_state['next_number_of_review_papers']],
+                    st.session_state['query'], model='gpt-4-32k', language=st.session_state['topk_review_toggle'] )
+                st.session_state['topk_review_caption'] = f"{button_title}の論文の中から取得した" + caption
+                st.session_state['topk_review_response'] = response
+
+                reference_indices = extract_reference_indices(response)
+                references_list = [reference_text for i, reference_text in enumerate(links) if i in reference_indices]
+                draft_references_list = [reference_text for i, reference_text in enumerate(draft_references) if i in reference_indices]
+                st.session_state['topk_references_list'] = references_list
+                st.session_state['topk_draft_references_list'] = draft_references_list
+                st.experimental_rerun()
+
+    display_spaces(2)
+
     #レビューによる草稿の入力部分
-    if 'papers_df' in st.session_state and 'topk_review_response' in st.session_state and 'topk_references_list' in st.session_state:
+    if 'papers_df' in st.session_state and 'topk_review_response' in st.session_state and 'topk_draft_references_list' in st.session_state:
         display_spaces(1)
         display_description(f"文章の草稿を入力してください。上位 {st.session_state['number_of_review_papers']} 件のレビューによりエビデンスを付与します。", 5)
         #ドラフトの入力部分
@@ -388,7 +408,7 @@ def app():
 
         if write_summary_button and len(draft_text) > 0:
             with st.spinner("⏳ AIによるエビデンスの付与中です。 お待ち下さい..."):
-                topk_summary_response, caption = summery_writer_with_draft(st.session_state['topk_review_response'], draft_text, st.session_state['topk_references_list'], model = 'gpt-4-32k', language=toggle)
+                topk_summary_response, caption = summery_writer_with_draft(st.session_state['topk_review_response'], draft_text, st.session_state['topk_draft_references_list'], model = 'gpt-4-32k', language=toggle)
                 display_description(caption)
                 display_spaces(2)
 
@@ -442,24 +462,39 @@ def app():
     #cluster_df の構築
     if 'H' in st.session_state:
         with st.spinner(f"⏳ 論文のクラスタリング中です..."):
-            cluster_counts, cluster_df, partition, clustering_result = community_clustering(st.session_state['H'])
-            #ページランクによるソートアルゴリズム
+            cluster_counts, partition, clustering_result = community_clustering(st.session_state['H'])
+            #ページランクによる全体のソートアルゴリズム
             df_centrality = page_ranking_sort(st.session_state['H'])
             # すでに作成されている中心性のデータフレーム（df_centrality）に結合
             df_centrality['Cluster'] = df_centrality['Node'].map(clustering_result)
             #クラスターごとの keyword を作成
             cluster_keywords = calc_tf_idf(df_centrality)
             st.session_state['df_centrality'] = df_centrality
-
             st.session_state['cluster_keywords'] = cluster_keywords
 
             cluster_df = df_centrality.groupby('Cluster').agg({
-                'Node': 'count',
-                'DegreeCentrality': 'mean',
-                'PageRank': 'mean'
-            })
+                    'Node': 'count',
+                    'DegreeCentrality': 'mean',
+                    'PageRank': 'mean',
+                    'CitationCount': 'median',
+                    'Year': 'mean'
+                })
+            cluster_df['Year'] = cluster_df['Year'].apply(lambda x: str(round(x, 2)).replace('.0', ''))
+
+            # 直近の年を特定
+            # latest_year = df_centrality['Year'].max()
+            latest_year = datetime.datetime.now().year
+            # 直近5年間のデータを取得
+            last_5_years = df_centrality[df_centrality['Year'] > latest_year - 5]
+            # Clusterごとの件数を計算
+            recent_counts = last_5_years.groupby('Cluster').size()
+            # この件数をgbにマージ
+            cluster_df['Recent5YearsCount'] = cluster_df.index.map(recent_counts)
+            cluster_df['Recent5YearsCount'] = cluster_df['Recent5YearsCount'].fillna(0).astype(int)
             cluster_df["ClusterKeywords"] = cluster_df.index.map(lambda x: ', '.join(cluster_keywords[x]))
+
             st.session_state['cluster_df'] = cluster_df
+            st.session_state['partition'] = partition
 
             #Cluster ID から Paper ID のリストを取得するリスト
             cluster_id_paper_ids = defaultdict(list)
@@ -471,21 +506,25 @@ def app():
         display_clusters = st.session_state['cluster_df'][st.session_state['cluster_df']['Node'] > 10]
         cluster_candidates = display_clusters.index.tolist()
         display_clusters = display_clusters.sort_values('Node', ascending=False)
+        #あとで使用する情報の保存
+        st.session_state['cluster_candidates'] = cluster_candidates
+        st.session_state['cluster_keywords'] = display_clusters['ClusterKeywords'].values
+
         for cluster_number in display_clusters.index:
             selected_paper_ids = st.session_state['cluster_id_to_paper_ids'][cluster_number]
             extracted_df = st.session_state['papers_df'][st.session_state['papers_df']['paperId'].isin(selected_paper_ids)]
             display_clusters.loc[cluster_number, 'netNumberOfNodes'] = len(extracted_df)
 
         rename_columns = {
-                'Node': "Number of Papers",
-                "ClusterKeywords" : "Keywords"
+                'Node': "文献数",
+                "Year": "平均年",
+                'Recent5YearsCount' : "直近5年の文献数",
+                "ClusterKeywords": "キーワード",
             }
+        display_clusters.index.name = "クラスタ番号"
         display_clusters.rename(columns= rename_columns, inplace=True)
 
         display_dataframe(display_clusters, f'クラスタに含まれる文献数とキーワード', len(display_clusters), list(rename_columns.values()))
-
-        st.session_state['cluster_candidates'] = cluster_candidates
-        st.session_state['cluster_keywords'] = display_clusters['Keywords'].values
 
 
     # # 特定のクラスタについて,  nodeをすべて取り出す
@@ -496,23 +535,30 @@ def app():
         detailed_cluster_dict = {f'{cluster_number} : {cluster_keyword}' : cluster_number for cluster_number, cluster_keyword in zip(st.session_state['cluster_candidates'] , st.session_state['cluster_keywords'])}
         selected_number_key = st.selectbox('詳細を表示するクラスタ番号を選んでください。', detailed_cluster_dict.keys())
         display_spaces(2)
+        cluster_sort = st.radio("クラスター内の論文の並べ替え方を選択してください。", ['重要度', '出版年'], index=0)
+        display_spaces(1)
         selected_number = detailed_cluster_dict[selected_number_key]
         st.session_state['selected_number'] = selected_number
 
+        #選択したクラスターで考える
         cluster_df_detail = get_cluster_papers(st.session_state['G'], st.session_state['H'],
                                                st.session_state['cluster_id_to_paper_ids'][selected_number])
         st.session_state['cluster_df_detail'] = cluster_df_detail
 
         #ここで，all_papers から引っ張ってきた情報を表示させる．
-
-        matched_papers_df = pd.merge(st.session_state['all_papers_df'], cluster_df_detail, left_on='paperId', right_on='Node', how='inner')
+        matched_papers_df = cluster_df_detail.merge(st.session_state['all_papers_df'], right_on='paperId', left_on='Node', how='inner')
         # DegreeCentrality を結合する
-        matched_papers_df['DegreeCentrality'] = matched_papers_df['Node'].map(
-            cluster_df_detail.set_index('Node')['DegreeCentrality'])
-
-        temp_cluster_df_detail =  matched_papers_df.rename(columns={'DegreeCentrality': "Importance"})
+        # matched_papers_df['PageRank'] = matched_papers_df['PageRank'].map(
+        #     cluster_df_detail.set_index('Node')['PageRank'])
+        temp_cluster_df_detail =  matched_papers_df.rename(columns={'PageRank': "Importance"})
         temp_cluster_df_detail.index.name = 'Paper ID'
-        temp_cluster_df_detail = temp_cluster_df_detail.sort_values('Importance', ascending=False)
+
+        if cluster_sort == "重要度":
+            temp_cluster_df_detail = temp_cluster_df_detail.sort_values('Importance', ascending=False)
+        elif cluster_sort == "出版年":
+            temp_cluster_df_detail = temp_cluster_df_detail.sort_values("year", ascending=False)
+        else:
+            raise ValueError(f"Invalid Sort {cluster_sort}")
         display_cluster_dataframe(temp_cluster_df_detail, f'クラスタ番号 {selected_number} 内での検索結果上位 20 件', 20)
 
         #クラスタの年情報の追加
@@ -521,7 +567,7 @@ def app():
         display_spaces(2)
         display_description(f'クラスタ番号{selected_number}の引用ネットワーク', size=3)
         with st.spinner(f"⏳ クラスタ番号 {selected_number} のグラフを描画中です..."):
-            plot_cluster_i(st.session_state['H'], selected_number, st.session_state['df_centrality'])
+            plot_cluster_i(st.session_state['H'], selected_number, st.session_state['partition'])
 
     #特定のクラスタによる草稿の編集
 
@@ -546,30 +592,63 @@ def app():
             with st.spinner(f"⏳ AIによるクラスタレビューの生成中です。 お待ち下さい..."):
                 selected_cluster_paper_ids = cluster_df_detail['Node'].values.tolist()[:st.session_state['number_of_cluster_review_papers']]
                 result_list, result_dict = get_papers_from_ids(selected_cluster_paper_ids)
-                selected_papers = pd.DataFrame(result_dict)
-                cluster_response, reference_titles, caption = title_review_papers(selected_papers, st.session_state['query'], model = 'gpt-4-32k', language=toggle)
+                selected_papers = set_paper_information(pd.DataFrame(result_dict))
+                st.session_state['cluster_papers_df'] = selected_papers
+                cluster_response, reference_links, caption, draft_references = title_review_papers(selected_papers, st.session_state['query'], model = 'gpt-4-32k', language=toggle)
 
                 display_description(caption)
                 display_spaces(1)
                 st.session_state['cluster_response'] = cluster_response
-                st.session_state['cluster_reference_titles'] = reference_titles
 
             #response に含まれている Referenceの表示
                 reference_indices = extract_reference_indices(cluster_response)
-                references_list = [reference_text for i, reference_text in enumerate(reference_titles) if i in reference_indices]
+                references_list = [reference_text for i, reference_text in enumerate(reference_links) if i in reference_indices]
+                draft_references_list = [reference_text for i, reference_text in enumerate(draft_references) if i in reference_indices]
                 st.session_state['cluster_references_list'] = references_list
+                st.session_state['cluster_draft_references_list'] = draft_references_list
 
 
-
-    if 'cluster_response' in st.session_state and 'cluster_references_list' in st.session_state and 'cluster_reference_titles' in st.session_state and 'selected_number' in st.session_state:
+    if 'cluster_response' in st.session_state and 'cluster_references_list' in st.session_state  and 'selected_number' in st.session_state:
         display_description(st.session_state['cluster_response'])
 
         if len(st.session_state['cluster_references_list']) > 0:
             display_description('参考文献リスト', size=6)
             display_references_list(st.session_state['cluster_references_list'])
 
+    display_spaces(2)
+
+    # #次の Review 内容の表示
+    if 'cluster_papers_df' in st.session_state and 'cluster_response'in st.session_state  and 'cluster_references_list' in st.session_state:
+        next_cluster_review_button = st.button(f"次の上位 {st.session_state['number_of_cluster_review_papers']} 件の論文によるレビュー生成。(時間がかかります)")
+        if next_cluster_review_button:
+            if not 'next_number_of_cluster_review_papers' in st.session_state:
+                st.session_state['next_number_of_cluster_review_papers'] = st.session_state['number_of_cluster_review_papers'] * 2
+            elif ('next_number_of_cluster_review_papers' in st.session_state) and (
+                    st.session_state['next_number_of_cluster_review_papers'] < len(st.session_state['papers_df'])):
+                st.session_state['next_number_of_cluster_review_papers'] = st.session_state['number_of_cluster_review_papers'] + \
+                                                                   st.session_state['next_number_of_cluster_review_papers']
+            else:
+                st.session_state['next_number_of_cluster_review_papers'] = st.session_state['number_of_cluster_review_papers']
+
+            button_title = f"上位 {st.session_state['next_number_of_cluster_review_papers'] - st.session_state['number_of_cluster_review_papers'] + 1} 件目から {min(st.session_state['next_number_of_cluster_review_papers'], len(st.session_state['papers_df']))} 件目"
+
+            with st.spinner(f"⏳ {button_title} の論文を使用した AI によるレビューの生成中です。 お待ち下さい..."):
+                response, links, caption, draft_references = title_review_papers(
+                    st.session_state['papers_df'][st.session_state['next_number_of_cluster_review_papers'] - st.session_state['number_of_cluster_review_papers']: st.session_state['next_number_of_cluster_review_papers']],
+                    st.session_state['query'], model='gpt-4-32k', language=st.session_state['cluster_review_toggle'] )
+                st.session_state['cluster_response'] = response
+
+                reference_indices = extract_reference_indices(response)
+                references_list = [reference_text for i, reference_text in enumerate(links) if i in reference_indices]
+                draft_references_list = [reference_text for i, reference_text in enumerate(draft_references) if i in reference_indices]
+                st.session_state['cluster_references_list'] = references_list
+                st.session_state['cluster_draft_references_list'] = draft_references_list
+                st.experimental_rerun()
+
         #終了時にドラフトを入力できるようにする
-        display_spaces(2)
+    display_spaces(2)
+
+    if 'number_of_cluster_review_papers' in st.session_state and 'cluster_response' in st.session_state and 'cluster_draft_references_list' in st.session_state:
         display_description(f"文章の草稿を入力してください。クラスタ内上位 {st.session_state['number_of_cluster_review_papers']} 件のレビューによりエビデンスを付与します。", 3)
         #ドラフトの入力部分
         draft_text = st.text_area(label='review draft input filed.', placeholder='Past your draft of review here!', label_visibility='hidden', height=300)
@@ -580,14 +659,14 @@ def app():
 
         if write_summary_button and len(draft_text) > 0:
             with st.spinner("⏳ AIによるエビデンスの付与中です。 お待ち下さい..."):
-                summary_response, caption = summery_writer_with_draft(st.session_state['cluster_response'], draft_text, st.session_state['cluster_references_list'], model = 'gpt-4-32k', language=toggle)
+                summary_response, caption = summery_writer_with_draft(st.session_state['cluster_response'], draft_text, st.session_state['cluster_draft_references_list'], model = 'gpt-4-32k', language=toggle)
                 display_description(caption)
                 display_spaces(1)
 
                 st.session_state['summary_response'] = summary_response
 
                 reference_indices = extract_reference_indices(summary_response)
-                references_list = [reference_text for i, reference_text in enumerate(st.session_state['cluster_reference_titles']) if
+                references_list = [reference_text for i, reference_text in enumerate(st.session_state['cluster_references_list']) if
                                    i in reference_indices]
                 st.session_state['summary_references_list'] = references_list
         elif write_summary_button:

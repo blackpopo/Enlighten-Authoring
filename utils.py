@@ -42,7 +42,7 @@ def tiktoken_setup(offset = 8):
 
     tiktoken_dict = {
         "gpt-3.5-turbo": (gpt_35_tiktoken, 4097 - offset),
-        "gpt-4-32k": (gpt_35_16k_tiktoken, 16385 - offset),
+        "gpt-3.5-turbo-16k": (gpt_35_16k_tiktoken, 16385 - offset),
         "gpt-4": (gpt_4_tiktoken, 8192 - offset),
         "gpt-4-32k": (gpt_4_32k_tiktoken, 32768 - offset),
     }
@@ -103,7 +103,8 @@ def _get_papers(query, year, offset, limit, fields):
 
 def get_papers(query_text, year, offset = 0, limit = 100, total_limit = 1000):
   papers = []
-  fields = "paperId,title,abstract,year,authors,journal,citationCount,referenceCount,references,embedding,references.title,references.abstract,references.year,references.authors,references.citationCount,references.referenceCount"
+  # fields = "paperId,title,abstract,year,authors,journal,citationCount,citationStyles,referenceCount,references,references.title,references.abstract,references.year,references.authors,references.citationCount,references.referenceCount,references.citationStyles"
+  fields = "paperId,title,abstract,year,authors,journal,citationCount,citationStyles,referenceCount,references,references.title,references.abstract,references.year,references.authors,references.citationCount,references.referenceCount,references.citationStyles,references.journal"
 
   # 最初の結果セットを取得
   # _get_papersはエラーが発生した場合 None を返す
@@ -154,7 +155,7 @@ def get_all_papers_from_references(papers):
     # 重複する行を削除
     all_papers.reset_index(inplace=True)
     all_papers.drop_duplicates(subset=['paperId'], inplace=True)
-    all_papers.set_index('paperId', inplace=True)
+    # all_papers.set_index('paperId', inplace=True)
 
     if 'Unnamed: 0' in all_papers.columns:
         all_papers.drop(columns=['Unnamed: 0'], inplace=True)
@@ -197,7 +198,7 @@ def _get_papers_from_ids(paper_ids, fields):
 def get_papers_from_ids(paper_ids, offset=0, limit=100):
     total_results = []
     total_dict = {}
-    fields = "paperId,title,abstract,year,authors,journal,citationCount,referenceCount,references,embedding,references.title,references.abstract,references.year,references.authors,references.citationCount,references.referenceCount"
+    fields = "paperId,title,abstract,year,authors,journal,citationCount,citationStyles,referenceCount,references,references.title,references.abstract,references.year,references.authors,references.citationCount,references.referenceCount,references.citationStyles,references.journal"
 
     # 修正した進捗表示
     total_len = len(paper_ids)
@@ -262,7 +263,7 @@ def save_papers_dataframe(df, query_text):
     df.to_csv(os.path.join(data_folder, f'{file_name}.csv'), encoding='utf-8')
 
 
-def load_papers_dataframe(query_text, literal_evals = ['references', 'authors'], dropna_list = ['title', 'abstract']):
+def load_papers_dataframe(query_text, literal_evals = ['references', 'authors', 'citationStyles'], dropna_list = ['paperId', 'title', 'abstract']):
     encoded_query_text_without_extension = encode_to_filename(query_text)
     file_name = safe_filename(encoded_query_text_without_extension)
     papers = pd.read_csv(os.path.join(data_folder, f'{file_name}.csv'))
@@ -271,10 +272,9 @@ def load_papers_dataframe(query_text, literal_evals = ['references', 'authors'],
 
     for literal_eval_value in literal_evals:
         papers[literal_eval_value] = papers[literal_eval_value].apply(ast.literal_eval)  # jsonの読み込み
-
     return  papers
 
-def to_dataframe(source, drop_list = [ 'title', 'abstract']):
+def to_dataframe(source, drop_list = ['paperId','title', 'abstract']):
     source = pd.DataFrame(source)
     if len(drop_list) > 0:
         source.dropna(subset=drop_list, inplace=True)
@@ -288,33 +288,6 @@ def is_valid_tiktoken(model_name, prompt):
         return True
     else:
         return False
-
-#tiktoken版
-def topk_review_generate_prompt(abstracts, query_text):
-    abstracts_text = "\n\n".join(abstracts)
-    prompt = f"""Academic abstracts: \n\n {abstracts_text} \n\n Instructions: Using the provided academic abstracts, write a comprehensive description about the given query by synthesizing these OBJECTIVE. Make sure to cite results using [number] notation after the sentence. If the provided search results refer to multiple subjects with the same name, write separate answers for each subject.\n\nQuery: {query_text}"""
-    return prompt
-
-def topk_review_papers(papers_df, query_text, model='gpt3.5-turbo-16k', topk=20):
-    abstracts = []
-    _papers_df = papers_df.head(topk)
-    caption = "All papers were used to generate the review. "
-    
-    if len(papers_df) < 1:
-        return "No papers are found to review papers with your query.", "Please search papers again from Semantic Scholar."
-
-    for i, (title, abstract) in enumerate(zip(_papers_df["title"], _papers_df["abstract"]), 1):
-        text = f"[{i}] {title} - {abstract}"
-        abstracts.append(text)
-        prompt = topk_review_generate_prompt(abstracts, query_text)
-
-        if not is_valid_tiktoken(model, prompt):
-            prompt = topk_review_generate_prompt(abstracts[:-1], query_text)
-            caption = f"{i -1 } / {topk} papers were used to generate the review. "
-            break
-            
-    gpt_response = get_azure_gpt_response(prompt, model)
-    return gpt_response, caption
 
 
 def title_review_generate_prompt(abstracts, query_text, language):
@@ -393,26 +366,29 @@ def title_review_generate_prompt(abstracts, query_text, language):
         return prompt
 
 
-#ここで，
+#論文のレビュー部分
 def title_review_papers(papers, query_text, model = 'gpt-4-32k', language="English"):
     abstracts = []
+    linked_apas = []
     titles = []
     prompt = title_review_generate_prompt([], query_text, language)
     caption = f"{len(papers)} 件の論文がレビューに使用されました。"
-    for i, (title, abstract, year) in enumerate(zip(papers["title"], papers["abstract"], papers['year']), 1):
+    for i, (title, abstract, year, link) in enumerate(zip(papers["title"], papers["abstract"], papers['year'], papers['linked_APA']), 1):
         text = f"[{i}] (Published in {year}) {title}\n{abstract}"
         abstracts.append(text)
-        titles.append(f'[{i}] {title}')
+        linked_apas.append(f"[{i}] : {link}")
+        titles.append(f"[{i}] : {title}\n{abstract}")
 
         prompt = title_review_generate_prompt(abstracts, query_text, language)
         if not is_valid_tiktoken(model, prompt):
-            prompt = topk_review_generate_prompt(abstracts[:-1], query_text)
+            prompt = title_review_generate_prompt(abstracts[:-1], query_text, language)
             caption = f"{i - 1} / {len(papers)} 件の論文がレビューに使用されました。"
             break
     cluster_summary = get_azure_gpt_response(prompt, model)
-    return cluster_summary, titles, caption
+    return cluster_summary, linked_apas, caption, titles
 
 
+#論文のリバイズ部分
 def summary_writer_generate_prompt(references, cluster_summary, draft, language):
 
 
@@ -480,11 +456,11 @@ def get_paper_graph(papers_df):
     for k in tqdm.tqdm(range(len(papers_df))):  # 0 ~ len(papers_df)-1
         # ノードの追加
         if papers_df.loc[k, 'paperId'] is not None:
-            G.add_node(papers_df.loc[k, 'paperId'], title=f"From:{papers_df.loc[k, 'title']}")
+            G.add_node(papers_df.loc[k, 'paperId'], title=f"From:{papers_df.loc[k, 'title']}", year=papers_df.loc[k, 'year'])
 
         for reference in papers_df.loc[k, 'references']:
             if reference['paperId'] is not None:
-                G.add_node(reference['paperId'], title=f"To:{reference['title']}")
+                G.add_node(reference['paperId'], title=f"To:{reference['title']}", year=reference['year'])
 
         # エッジの追加
         for reference in papers_df.loc[k, 'references']:
@@ -532,7 +508,10 @@ def get_cluster_papers(H, G, cluster_nodes):
     # クラスタ0に属するノードだけでサブグラフを作成
     H_cluster = H.subgraph(cluster_nodes)
 
-    # 次数中心性を計算
+    # PageRankの計算. 全体のページランクを使用する．
+    pagerank = nx.pagerank(H, alpha=0.9)
+
+    # 次数中心性の計算
     degree_centrality = nx.degree_centrality(H_cluster)
 
     # データフレームに変換
@@ -542,11 +521,16 @@ def get_cluster_papers(H, G, cluster_nodes):
     df_centrality['TitleNode'] = df_centrality['Node'].map(nx.get_node_attributes(G, 'title'))
     df_centrality['Title'] = df_centrality['TitleNode'].str.replace('To:', '').str.replace('From:', '')
 
-    # 次数中心性で降順ソート
-    df_centrality = df_centrality.sort_values('DegreeCentrality', ascending=False)
-    return df_centrality
-def page_ranking_sort(H):
+    # PageRankをデータフレームに追加
+    df_centrality['PageRank'] = df_centrality['Node'].map(pagerank)
 
+    # 次数中心性で降順ソート
+    df_centrality = df_centrality.sort_values('PageRank', ascending=False)
+
+    return df_centrality
+
+
+def page_ranking_sort(H):
     # PageRankの計算
     pagerank = nx.pagerank(H, alpha=0.9)
 
@@ -562,8 +546,11 @@ def page_ranking_sort(H):
     # 被引用回数を持つ新しいカラムを作成
     df_centrality['CitationCount'] = df_centrality['Node'].map(nx.get_node_attributes(H, 'citationCount'))
 
-    # PageRankをデータフレームに追加
+    # PageRankをデータフレームに追加F
     df_centrality['PageRank'] = df_centrality['Node'].map(pagerank)
+
+    # 出版年をもつカラムを作成
+    df_centrality['Year'] = df_centrality['Node'].map(nx.get_node_attributes(H, 'year'))
 
     # PageRankで降順ソート
     df_centrality = df_centrality.sort_values(['PageRank'], ascending=False)
@@ -583,35 +570,9 @@ def community_clustering(H):
 
     print(f'cluster counts {cluster_counts}')
 
-    # データフレームの作成
-    cluster_df = pd.DataFrame(list(cluster_counts.items()), columns=['clusterNumber', 'numberOfNodes'])
-
     clustering_result = {key: value for key, value in partition.items()}
 
-    # クラスタリング係数、平均経路長、密度を計算
-    clustering_coefficients = []
-    average_path_lengths = []
-    densities = []
-
-    for community in set(partition.values()):
-        subgraph = H.subgraph([node for node in partition if partition[node] == community])
-        clustering_coefficient = nx.average_clustering(subgraph)
-        clustering_coefficients.append(clustering_coefficient)
-
-        if nx.is_connected(subgraph):
-            average_path_length = nx.average_shortest_path_length(subgraph)
-        else:
-            average_path_length = None
-        average_path_lengths.append(average_path_length)
-
-        density = nx.density(subgraph)
-        densities.append(density)
-
-    # 既存のデータフレームにこれらの値を追加
-    cluster_df['clusteringCoefficient'] = clustering_coefficients
-    cluster_df['averagePathLength'] = average_path_lengths
-    cluster_df['density'] = densities
-    return cluster_counts, cluster_df, partition, clustering_result
+    return cluster_counts, partition, clustering_result
 
 
 def prepare_traces(G, partition):
@@ -743,6 +704,72 @@ def calc_tf_idf(df_centrality):
             cluster_keywords[cluster].append(feature_names[sorted_indices[i]])
 
     return cluster_keywords
+
+
+def bibtex_to_apa(bibtex_entry):
+    apa_format = ""
+    if not bibtex_entry:
+        return ""
+    bibtex_entry = bibtex_entry['bibtex']
+
+    # Author
+    author = re.search(r'author = {(.*?)}', bibtex_entry)
+    if author:
+        authors = author.group(1).split(' and ')
+        formatted_authors = []
+        for auth in authors:
+            if " " in auth:  # Full name
+                parts = auth.split(" ")
+                last = parts[-1]
+                initials = ". ".join([name[0] for name in parts[:-1]])
+                formatted_authors.append(f"{last}, {initials}.")
+            else:  # Initials
+                formatted_authors.append(auth)
+
+        if len(formatted_authors) == 1:
+            apa_format += formatted_authors[0]
+        elif len(formatted_authors) == 2:
+            apa_format += f"{formatted_authors[0]} & {formatted_authors[1]}"
+        else:
+            apa_format += ", ".join(formatted_authors[:-1]) + f" & {formatted_authors[-1]}"
+
+    # Year
+    year = re.search(r'year = {(.*?)}', bibtex_entry)
+    if year:
+        apa_format += f" ({year.group(1)}). "
+
+    # Title
+    title = re.search(r' title = {(.*?)}', bibtex_entry)
+    if title:
+        apa_format += f"{title.group(1)}. "
+
+    # Journal
+    journal = re.search(r'journal = {(.*?)}', bibtex_entry)
+    if journal:
+        apa_format += f"{journal.group(1)}"
+
+    # Volume
+    volume = re.search(r'volume = {(.*?)}', bibtex_entry)
+    if volume:
+        apa_format += f", {volume.group(1)}"
+
+    # Pages
+    pages = re.search(r'pages = {(.*?)}', bibtex_entry)
+    if pages:
+        cleaned_pages = pages.group(1).replace('\n', '').strip()
+        apa_format += f", pp. {cleaned_pages}."
+    else:
+        apa_format += '.'
+
+    return apa_format
+
+def set_paper_information(papers):
+    papers['APA'] = papers['citationStyles'].apply(bibtex_to_apa)
+    papers['linked_APA'] = papers.apply(lambda
+                                            row: f'<a href="https://www.semanticscholar.org/paper/{row["paperId"]}" target="_blank">{row["APA"]}</a>',
+                                        axis=1)
+    return papers
+
 
 
 if __name__=='__main__':
