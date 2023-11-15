@@ -7,7 +7,10 @@ data_folder = os.path.join(current_dir, 'database')
 import re
 import ast
 import pandas as pd
+import random
 import matplotlib.pyplot as plt
+from functools import partial
+from scipy.special import comb # 組み合わせ数を計算する関数
 import tqdm
 import plotly.graph_objects as go
 import networkx as nx
@@ -530,16 +533,6 @@ def extract_subgraph(G):
     H = G.to_undirected()
     return H
 
-
-def plot_subgraph(H):
-    # サブグラフの描画
-    plt.figure(figsize=(10,10))
-    pos = nx.spring_layout(H, seed=42)  # layoutの指定
-    nx.draw(H, pos, with_labels=False, node_size=50)
-
-    st.pyplot(plt)
-
-
 #グラフ全体Hに対してPageRankを計算する
 def get_cluster_papers(H, G, cluster_nodes):
     # クラスタ0に属するノードだけでサブグラフを作成
@@ -814,6 +807,199 @@ def save_values():
     params = st.experimental_get_query_params()
     print(params)
 
+
+# Y座標を少しランダムにずらすための関数を追加します
+def randomize_y_position(start, end, excluded, count):
+    ys = []
+    while len(ys) < count:
+        y = random.uniform(start, end)
+        if y not in excluded:
+            ys.append(y)
+            excluded.add(y)
+    return ys
+
+
+# `edge_data`関数を修正して`G`を含むようにする
+def edge_data(B, C, G):
+    # この内部関数は`G`を閉じ込めて、BとCだけを外部から受け取れるようにする
+    def edge_data_with_graph(B, C):
+        edge_count = sum(1 for node_in_b in B for node_in_c in C if G.has_edge(node_in_b, node_in_c))
+        return {'weight': edge_count}
+
+    return edge_data_with_graph(B, C)
+
+
+def edge_to_curved_trace(edge, pos, width, curvature=0.1):
+    # エッジの開始と終了の点を取得します
+    x0, y0 = pos[edge[0]]
+    x1, y1 = pos[edge[1]]
+
+    # 曲線を滑らかにするために制御点を計算します
+    # ここでは、エッジの中間点を制御点として単純化しています
+    # 実際には、より複雑な制御が必要な場合もあります
+    ctrl_x, ctrl_y = (x0 + x1) / 2, (y0 + y1) / 2 + curvature
+
+    # 曲線のポイントを生成するためにベジェ曲線の式を使います
+    bezier_points = bezier_curve(np.array([x0, ctrl_x, x1]), np.array([y0, ctrl_y, y1]), 20)
+
+    edge_trace = go.Scatter(
+        x=bezier_points[:, 0],
+        y=bezier_points[:, 1],
+        line=dict(width=width, color='rgba(136, 136, 136, 0.6)'),
+        hoverinfo='none',
+        mode='lines'
+    )
+
+    return edge_trace
+
+
+def bezier_curve(points_x, points_y, num_of_points):
+    # ベジェ曲線のポイントを計算する関数
+    n = len(points_x) - 1
+    return np.array([sum(
+        [bernstein_poly(i, n, t) * np.array([x, y]) for i, (x, y) in enumerate(zip(points_x, points_y))])
+        for t in np.linspace(0, 1, num_of_points)])
+
+
+def bernstein_poly(i, n, t):
+    # ベルンシュタイン多項式を計算
+    return comb(n, i) * (t ** (n - i)) * (1 - t) ** i
+def plot_research_front():
+    for require_key in ['partition', 'G', 'H']:
+        if not require_key in st.session_state:
+            return
+            # quotient_graphに渡すために、community_louvainの出力であるpartitionをコミュニティのセットに変換する
+    communities = defaultdict(list)
+    for node, comm_id in st.session_state['partition'].items():
+        communities[comm_id].append(node)
+
+    # `edge_data` 関数を `partial` を使用して `G` で部分適用する
+    edge_data_fixed = partial(edge_data, G=st.session_state['G'])  # `G` を `edge_data` 関数に固定する
+
+    # ブロックモデルの作成（Hは論文の引用関係を示した無向グラフ）
+    block_model_graph = nx.quotient_graph(st.session_state['H'], communities, relabel=True, edge_data=edge_data_fixed)
+
+    # 前提として、gbデータフレームのCluster IDはコミュニティのラベルに対応しているとします。
+    # gbはCluster IDをindexとするデータフレームで、Year列にはクラスタのノードの平均年が入っています。
+
+    display_cluster = st.session_state['cluster_df'].copy()
+    display_cluster['Year'] = display_cluster['Year'].apply(lambda x: int(x.split('.')[0]))
+    # コミュニティのラベルを年でソート
+    sorted_communities_by_year = display_cluster.sort_values('Year').index.tolist()
+
+    # ブロックモデルグラフのノードリストを取得
+    block_nodes = list(block_model_graph.nodes)
+
+    # 各コミュニティのY座標をランダムにするために、randomize_y_position関数を使います。
+    y_positions = randomize_y_position(-1, 1, set(), len(sorted_communities_by_year))
+
+    # ソートされたコミュニティに基づいて位置情報を設定する
+    pos = {node: (index, y) for index, (node, y) in enumerate(zip(sorted_communities_by_year, y_positions))}
+
+    # 位置情報を更新する
+    pos = {node: pos[node] for node in block_nodes if node in pos}
+
+    # エッジの重みをリストとして抽出します
+    weights = nx.get_edge_attributes(block_model_graph, 'weight').values()
+    max_weight = max(weights) if weights else 1
+    widths = [w * 5.0 / max_weight for w in weights]  # 重みに比例するようにエッジの太さを設定
+
+    # ノードサイズのスケーリング用の基本値を設定
+    size_base = 10
+    min_size = size_base
+    max_size = size_base * 10  # 最大サイズを最小サイズの5倍とします
+
+    # Node数の最小値と最大値を取得
+    min_citations = display_cluster['Node'].min()
+    max_citations = display_cluster['Node'].max()
+
+    # ノードサイズをNode数に基づいて設定
+    sizes = [((citationCount - min_citations) / (max_citations - min_citations) * (max_size - min_size) + min_size)
+             if max_citations > min_citations else min_size for citationCount in display_cluster.loc[block_nodes, 'Node']]
+
+
+    # エッジを描画
+    edge_traces = []  # エッジのための複数のtraceを保持するリストを作成
+
+    for (edge, width) in zip(block_model_graph.edges(), widths):
+        x0, y0 = pos[edge[0]]
+        x1, y1 = pos[edge[1]]
+        # エッジごとにtraceを作成し、それぞれの太さを設定
+        #     edge_trace = go.Scatter(
+        #         x=[x0, x1, None], y=[y0, y1, None],
+        #         line=dict(width=width, color='#888', opacity=0.5),  # widthをリストから取得した値に設定
+        #         hoverinfo='none',
+        #         mode='lines')
+        edge_trace = edge_to_curved_trace(edge, pos, width, curvature=0.4)
+        edge_traces.append(edge_trace)  # 新しいtraceをリストに追加
+
+    # ノードの情報を抽出
+    node_x = []
+    node_y = []
+    node_text = []
+
+    for node in block_model_graph.nodes():
+        x, y = pos[node]
+        node_x.append(x)
+        node_y.append(y)
+        # 'Keywords'列からホバーテキストを生成
+        node_text.append(
+            f"{node}: {int(display_cluster.loc[node, 'Year'])}年({display_cluster.loc[node, 'Recent5YearsCount']}/{display_cluster.loc[node, 'Node']}) ({display_cluster.loc[node, 'CitationCount']}) {display_cluster.loc[node, 'ClusterKeywords']}")  # gbがクラスタの情報を含むDataFrameと仮定
+
+    # クラスタ番号を表示するための追加のScatterトレースを作成
+    cluster_number_trace = go.Scatter(
+        x=node_x, y=node_y,
+        text=block_nodes,  # クラスタ番号を含むテキストリスト
+        mode='text',  # テキストのみを表示
+        hoverinfo='none',  # ホバー情報は不要
+        textposition="top center",  # テキストの位置をノードの上に設定
+        showlegend=False,  # 凡例には表示しない
+    )
+
+    # ノードのサイズと色のリスト
+    # sizes というリストがノードごとのサイズを持っていると仮定する
+    node_color = 'lightsteelblue'  # またはノードごとに異なる色のリストを指定する
+
+    # ノードのScatterトレースを作成
+    node_trace = go.Scatter(
+        x=node_x, y=node_y,
+        text=node_text,  # 以前に作成したノードのラベルリスト
+        mode='markers',  # マーカーとテキストの両方を表示
+        hoverinfo='text',
+        marker=dict(
+            showscale=False,  # これをFalseに設定してカラーバーを非表示にする
+            color=node_color,
+            size=sizes,
+            colorbar=dict(
+                thickness=15,
+                title='Node Connections',
+                xanchor='left',
+                titleside='right'
+            ),
+            line_width=2),
+        textposition="bottom center"  # ラベルの位置
+    )
+
+    # レイアウトとプロットの作成
+    layout = go.Layout(
+        title='クラスタの時間的な発展',
+        titlefont_size=16,
+        showlegend=False,
+        hovermode='closest',
+        margin=dict(b=20, l=5, r=5, t=40),
+        annotations=[dict(
+            text="円の大きさ:論文数, 辺の太さ:クラスタの関連性, X軸:出版年の新しさ, 注釈:[平均出版年]（5年以内の論文数/総論文数）(平均被引用回数)[キーワード]",
+            showarrow=False,
+            xref="paper", yref="paper",
+            x=0.005, y=-0.002)],
+        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False)
+    )
+
+    # フィギュアの作成
+    fig = go.Figure(data=[node_trace, cluster_number_trace] + edge_traces, layout=layout)
+    # Streamlitでのプロットの表示
+    st.plotly_chart(fig)
 
 if __name__=='__main__':
     # response = "近年、社会ロボットやAIとのインタラクションが人間の感情調整に効果的であることが明らかとなりました。特に、これらの技術が子供たちの感情調整をサポートする能力が注目されています。" \

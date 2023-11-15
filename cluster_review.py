@@ -1,3 +1,5 @@
+import streamlit
+
 from streamlit_utils import *
 from utils import *
 
@@ -71,6 +73,11 @@ def construct_cluster_component():
 
 def display_cluster_component():
     if 'cluster_df' in st.session_state.keys():
+
+        with st.spinner("⏳ クラスターの時間的な発展を描画中です。お待ち下さい。"):
+            plot_research_front()
+
+        display_spaces(2)
         display_clusters = st.session_state['cluster_df'][st.session_state['cluster_df']['Node'] > 10]
         cluster_candidates = display_clusters.index.tolist()
         display_clusters = display_clusters.sort_values('Node', ascending=False)
@@ -93,6 +100,8 @@ def display_cluster_component():
         display_clusters.rename(columns= rename_columns, inplace=True)
 
         display_dataframe(display_clusters, f'クラスタに含まれる文献数とキーワード', len(display_clusters), list(rename_columns.values()))
+
+
 
 def display_each_cluster_component():
     if 'cluster_candidates' in st.session_state and 'H' in st.session_state and 'G' in st.session_state and 'cluster_id_to_paper_ids' in st.session_state :
@@ -130,11 +139,11 @@ def display_each_cluster_component():
         display_cluster_years(temp_cluster_df_detail)
 
 
-        display_spaces(2)
-        display_description(f'クラスタ番号{selected_number}の引用ネットワーク', size=5)
-        with st.expander(label='引用ネットワーク'):
-            with st.spinner(f"⏳ クラスタ番号 {selected_number} のグラフを描画中です..."):
-                plot_cluster_i(st.session_state['H'], selected_number, st.session_state['partition'])
+        # display_spaces(2)
+        # display_description(f'クラスタ番号{selected_number}の引用ネットワーク', size=5)
+        # with st.expander(label='引用ネットワーク'):
+        #     with st.spinner(f"⏳ クラスタ番号 {selected_number} のグラフを描画中です..."):
+        #         plot_cluster_i(st.session_state['H'], selected_number, st.session_state['partition'])
 
 def generate_cluster_review_component():
     if 'selected_number' in st.session_state and 'cluster_df_detail' in st.session_state and 'query' in st.session_state:
