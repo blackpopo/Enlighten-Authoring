@@ -46,7 +46,7 @@ def construct_cluster_component():
                     'CitationCount': 'median',
                     'Year': 'mean'
                 })
-            cluster_df['Year'] = cluster_df['Year'].apply(lambda x: str(round(x, 2)).replace('.0', ''))
+            cluster_df['Year'] = cluster_df['Year'].apply(lambda x: str(round(x, 2)))
 
             # 直近の年を特定
             # latest_year = df_centrality['Year'].max()

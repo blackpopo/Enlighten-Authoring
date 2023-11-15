@@ -76,7 +76,7 @@ def display_dataframe_detail(df, title, topk):
     df['journal name'] = df['journal'].apply(get_journal_name)
     df['author names'] = df['authors'].apply(lambda x: [d.get('name') for d in x] if isinstance(x, list) else None)
     df['citation count'] = df['citationCount']
-    df['published year'] = df['year'].apply(lambda x: str(x).replace('.0', ''))
+    df['published year'] = df['year'].apply(lambda x: str(x))
     df = df[['title', 'abstract', 'published year', 'citation count', 'journal name', 'author names']]
     df.columns =  ['Title',  'Abstract', 'Published Year', 'Citation Count', 'Journal Name', 'Author Names']
     st.dataframe(df.head(topk), hide_index=True)
