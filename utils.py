@@ -2,8 +2,6 @@ import requests
 import os
 from time import sleep
 import tiktoken
-
-
 current_dir = os.path.abspath(os.path.dirname(__file__))
 data_folder = os.path.join(current_dir, 'database')
 import re
