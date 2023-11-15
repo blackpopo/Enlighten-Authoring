@@ -252,8 +252,6 @@ def app():
     # if refresh_button:
     #     st.experimental_rerun()
 
-    # st.session_state['debug'] = False
-    #
     # debug_mode = st.checkbox("Debug Mode", value=True)
     # if debug_mode:
     #     st.session_state['debug'] = True
@@ -722,5 +720,6 @@ def app():
 
 
 if __name__ == "__main__":
-    load_widget_state()
+    # load_widget_state()
+    st.session_state['debug'] = False
     app()
