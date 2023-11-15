@@ -10,6 +10,7 @@ from collections import defaultdict, namedtuple
 import datetime
 import numpy as np
 import japanize_matplotlib
+from persist import persist, load_widget_state
 
 OPENAI_API_KEY = st.secrets['OPENAI_API_KEY']
 DEEPL_API_KEY = st.secrets['DEEPL_API_KEY']
@@ -142,6 +143,19 @@ def display_language_toggle(unique_string):
     )
     return toggle
 
+def display_draft_evidence_toggle(unique_string):
+    toggle = st.radio(
+        f"{unique_string}でエビデンスを付与する方法を選択してください。",
+        [ '文献のみ付与', '文章の加筆と文献の付与']
+    )
+    if toggle == '文献のみ付与':
+        toggle = "only_add_citation"
+    elif toggle == '文章の加筆と文献の付与':
+        toggle = "revise_and_add_citation"
+    else:
+        raise ValueError(f"Invalid toggle {toggle}")
+    return toggle
+
 def display_cluster_years(df: pd.DataFrame):
     display_description("クラスタ内の論文出版年", 5)
     min_year, max_year, ave_year = df['year'].min(), df['year'].max(), df['year'].mean()
@@ -240,9 +254,9 @@ def app():
 
     st.session_state['debug'] = False
 
-    # debug_mode = st.checkbox("Debug Mode", value=True)
-    # if debug_mode:
-    #     st.session_state['debug'] = True
+    debug_mode = st.checkbox("Debug Mode", value=True)
+    if debug_mode:
+        st.session_state['debug'] = True
 
     #Queryの管理
     display_title()
@@ -277,7 +291,7 @@ def app():
             if os.path.exists(os.path.join(data_folder, f"{safe_filename(encode_to_filename(query))}.csv")) and st.session_state['debug']:
                 display_description(f"{query} を Semantic Scholar で検索済みです。\n")
                 papers_df = load_papers_dataframe(query)
-                all_papers_df = load_papers_dataframe(query + '_all', [ 'authors', 'citationStyles'], ['title', 'abstract', 'year'])
+                all_papers_df = load_papers_dataframe(query + '_all', [ 'authors', 'citationStyles'])
                 total = None
             else:
                 display_description(f"{query} を Semantic Scholar で検索中です。\n")
@@ -302,7 +316,7 @@ def app():
             save_papers_dataframe(papers_df, query)
             save_papers_dataframe(all_papers_df, query + '_all' )
             papers_df = load_papers_dataframe(query)
-            all_papers_df = load_papers_dataframe(query + '_all', ['authors', 'citationStyles'], ['title', 'abstract', 'year'])
+            all_papers_df = load_papers_dataframe(query + '_all', ['authors', 'citationStyles'])
 
         print(f"all papers df size {len(all_papers_df)} papers df size {len(papers_df)}")
         st.session_state['all_papers_df'] = set_paper_information(all_papers_df)
@@ -396,28 +410,36 @@ def app():
     display_spaces(2)
 
     #レビューによる草稿の入力部分
-    if 'papers_df' in st.session_state and 'topk_review_response' in st.session_state and 'topk_draft_references_list' in st.session_state:
+    if 'papers_df' in st.session_state:
         display_spaces(1)
         display_description(f"文章の草稿を入力してください。上位 {st.session_state['number_of_review_papers']} 件のレビューによりエビデンスを付与します。", 5)
         #ドラフトの入力部分
-        draft_text = st.text_area(label='review draft input filed.', placeholder='Past your draft of review here.', label_visibility='hidden', height=300)
+        if not 'topk_draft_text' in st.session_state:
+            draft_text = st.text_area(label='review draft input filed.', placeholder='Past your draft of review here.', label_visibility='hidden', height=300)
+        else:
+            draft_text = st.text_area(label='review draft input filed.', value = st.session_state['topk_draft_text'],placeholder='Past your draft of review here.', label_visibility='hidden', height=300)
+        st.session_state['topk_draft_text'] = draft_text
 
         toggle = display_language_toggle(f"レビューによるエビデンス付与")
+        mode_toggle = display_draft_evidence_toggle(f"レビュー生成")
 
         write_summary_button = st.button(f"上位 {st.session_state['number_of_review_papers']} 件の論文レビューによるエビデンス付与。(時間がかかります)", )
 
         if write_summary_button and len(draft_text) > 0:
-            with st.spinner("⏳ AIによるエビデンスの付与中です。 お待ち下さい..."):
-                topk_summary_response, caption = summery_writer_with_draft(st.session_state['topk_review_response'], draft_text, st.session_state['topk_draft_references_list'], model = 'gpt-4-32k', language=toggle)
-                display_description(caption)
-                display_spaces(2)
+            if 'topk_review_response' in st.session_state and 'topk_draft_references_list' in st.session_state:
+                with st.spinner("⏳ AIによるエビデンスの付与中です。 お待ち下さい..."):
+                    topk_summary_response, caption = summery_writer_with_draft(st.session_state['topk_review_response'], draft_text, st.session_state['topk_draft_references_list'], model = 'gpt-4-32k', language=toggle, mode=mode_toggle)
+                    display_description(caption)
+                    display_spaces(2)
 
-                st.session_state['topk_summary_response'] = topk_summary_response
+                    st.session_state['topk_summary_response'] = topk_summary_response
 
-                reference_indices = extract_reference_indices(topk_summary_response)
-                references_list = [reference_text for i, reference_text in enumerate(st.session_state['topk_references_list']) if
-                                   i in reference_indices]
-                st.session_state['topk_summary_references_list'] = references_list
+                    reference_indices = extract_reference_indices(topk_summary_response)
+                    references_list = [reference_text for i, reference_text in enumerate(st.session_state['topk_references_list']) if
+                                       i in reference_indices]
+                    st.session_state['topk_summary_references_list'] = references_list
+            else:
+                display_description("レビューがありません。先にレビューを生成してください。")
         elif write_summary_button:
             display_description("入力欄が空白です。草稿を入力してください。")
 
@@ -564,10 +586,12 @@ def app():
         #クラスタの年情報の追加
         display_cluster_years(temp_cluster_df_detail)
 
+
         display_spaces(2)
-        display_description(f'クラスタ番号{selected_number}の引用ネットワーク', size=3)
-        with st.spinner(f"⏳ クラスタ番号 {selected_number} のグラフを描画中です..."):
-            plot_cluster_i(st.session_state['H'], selected_number, st.session_state['partition'])
+        display_description(f'クラスタ番号{selected_number}の引用ネットワーク', size=5)
+        with st.expander(label='引用ネットワーク'):
+            with st.spinner(f"⏳ クラスタ番号 {selected_number} のグラフを描画中です..."):
+                plot_cluster_i(st.session_state['H'], selected_number, st.session_state['partition'])
 
     #特定のクラスタによる草稿の編集
 
@@ -656,27 +680,35 @@ def app():
         #終了時にドラフトを入力できるようにする
     display_spaces(2)
 
-    if 'number_of_cluster_review_papers' in st.session_state and 'cluster_review_response' in st.session_state and 'cluster_draft_references_list' in st.session_state:
+    if 'number_of_cluster_review_papers' in st.session_state:
         display_description(f"文章の草稿を入力してください。クラスタ内上位 {st.session_state['number_of_cluster_review_papers']} 件のレビューによりエビデンスを付与します。", 3)
         #ドラフトの入力部分
-        draft_text = st.text_area(label='review draft input filed.', placeholder='Past your draft of review here!', label_visibility='hidden', height=300)
+        if not 'cluster_review_draft_text' in st.session_state:
+            draft_text = st.text_area(label='cluster review draft input filed.', placeholder='Past your draft of review here.', label_visibility='hidden', height=300)
+        else:
+            draft_text = st.text_area(label='clsuter review draft input filed.', value = st.session_state['cluster_review_draft_text'],placeholder='Past your draft of review here.', label_visibility='hidden', height=300)
+        st.session_state['cluster_review_draft_text'] = draft_text
 
         toggle = display_language_toggle(f"クラスタレビューによるエビデンス付与")
+        mode_toggle = display_draft_evidence_toggle(f"クラスタレビュー生成")
 
         write_summary_button = st.button(f"クラスタ内上位{st.session_state['number_of_cluster_review_papers']}の論文レビューによるエビデンス付与。(時間がかかります)", )
 
         if write_summary_button and len(draft_text) > 0:
-            with st.spinner("⏳ AIによるエビデンスの付与中です。 お待ち下さい..."):
-                summary_response, caption = summery_writer_with_draft(st.session_state['cluster_review_response'], draft_text, st.session_state['cluster_draft_references_list'], model = 'gpt-4-32k', language=toggle)
-                display_description(caption)
-                display_spaces(1)
+            if 'cluster_review_response' in st.session_state and 'cluster_draft_references_list' in st.session_state:
+                with st.spinner("⏳ AIによるエビデンスの付与中です。 お待ち下さい..."):
+                    summary_response, caption = summery_writer_with_draft(st.session_state['cluster_review_response'], draft_text, st.session_state['cluster_draft_references_list'], model = 'gpt-4-32k', language=toggle, mode=mode_toggle)
+                    display_description(caption)
+                    display_spaces(1)
 
-                st.session_state['summary_response'] = summary_response
+                    st.session_state['summary_response'] = summary_response
 
-                reference_indices = extract_reference_indices(summary_response)
-                references_list = [reference_text for i, reference_text in enumerate(st.session_state['cluster_references_list']) if
-                                   i in reference_indices]
-                st.session_state['summary_references_list'] = references_list
+                    reference_indices = extract_reference_indices(summary_response)
+                    references_list = [reference_text for i, reference_text in enumerate(st.session_state['cluster_references_list']) if
+                                       i in reference_indices]
+                    st.session_state['summary_references_list'] = references_list
+            else:
+                display_description("クラスタレビューがありません。先にクラスタレビューを生成してください。")
         elif write_summary_button:
             display_description("入力欄が空白です。草稿を入力してください。")
 
@@ -690,4 +722,5 @@ def app():
 
 
 if __name__ == "__main__":
+    load_widget_state()
     app()

@@ -253,6 +253,18 @@ def safe_filename(filename):
 def encode_to_filename(s):
     return s.replace(" ", "_").replace("\"", "__dq__")
 
+
+def safe_literal_eval(val):
+    # val が nan でない場合のみ、safe_literal_eval を適用
+    if pd.notna(val):
+        try:
+            return ast.literal_eval(val)
+        except Exception as e:
+            # ここでエラーを処理
+            print(f"Error in literal_eval: {e}")
+            return val  # またはエラー処理に応じて別の値を返す
+    return val  # nan の場合はそのまま返す
+
 def decode_from_filename(filename):
     return filename.replace(".csv", "").replace('__dq__', '\"').replace("_", " ")
 
@@ -262,22 +274,18 @@ def save_papers_dataframe(df, query_text):
     df.to_csv(os.path.join(data_folder, f'{file_name}.csv'), encoding='utf-8')
 
 
-def load_papers_dataframe(query_text, literal_evals = ['references', 'authors', 'citationStyles'], dropna_list = ['paperId', 'title', 'abstract']):
+def load_papers_dataframe(query_text, literal_evals = ['references', 'authors', 'citationStyles']):
     encoded_query_text_without_extension = encode_to_filename(query_text)
     file_name = safe_filename(encoded_query_text_without_extension)
     papers = pd.read_csv(os.path.join(data_folder, f'{file_name}.csv'))
-    papers.dropna(subset=dropna_list, inplace=True)
     papers.reset_index(drop=True, inplace=True)
 
     for literal_eval_value in literal_evals:
-        papers[literal_eval_value] = papers[literal_eval_value].apply(ast.literal_eval)  # jsonの読み込み
+        papers[literal_eval_value] = papers[literal_eval_value].apply(safe_literal_eval)  # jsonの読み込み
     return  papers
 
-def to_dataframe(source, drop_list = ['paperId','title', 'abstract']):
+def to_dataframe(source):
     source = pd.DataFrame(source)
-    if len(drop_list) > 0:
-        source.dropna(subset=drop_list, inplace=True)
-        source.reset_index(drop=True, inplace=True)
     return source
 
 def is_valid_tiktoken(model_name, prompt):
@@ -388,57 +396,93 @@ def title_review_papers(papers, query_text, model = 'gpt-4-32k', language="Engli
 
 
 #論文のリバイズ部分
-def summary_writer_generate_prompt(references, cluster_summary, draft, language):
+def summary_writer_generate_prompt(references, cluster_summary, draft, language, mode):
 
 
     references_text = "\n\n".join(references)
 
-    prompt = f"""Specific summary: \n\n 
-                {cluster_summary}\n\n 
+    if mode == "revise_and_add_citation":
+        prompt = f"""Specific summary: \n\n 
+                    {cluster_summary}\n\n 
+    
+                    References:\n\n
+                    {references_text}\n\n
+    
+                    Instructions: Using the provided academic summaries, write a comprehensive long description about the given draft by synthesizing these summaries. You must write in English.
+                    Make sure to cite results using [number] notation after the sentence. If the provided search results refer to multiple subjects with the same name, 
+                    write separate answers for each subject.\n\n
+    
+                    Draft: {draft}\n\n
+                    """
 
-                References:\n\n
-                {references_text}\n\n
+        japanese_prompt = f"""学術論文の要約：\n\n
+                    {cluster_summary}\n\n
+    
+                    参考文献： \n\n
+                    {references_text}\n\n
+    
+                    指示: 提供された学術論文の要約を総合して、与えられた草稿について包括的な長文の説明を記述しなさい。必ず日本語で記述しなさい。
+                    参考文献の引用は、必ず文の後に[number]表記で行うこと。参考文献が同じ名前で複数の主題に言及している場合は、主題ごとに別々の解答を書きなさい。
+    
+                    草稿： {draft}
+                    
+                    """
+    elif mode == "only_add_citation":
+        prompt = f"""Academic abstracts: \n\n
+                    {references_text}
+                    \n\n
+                    Instructions: Using the provided academic abstracts, do a task to each sentence in the given draft by minimizing content changes.
+                    Task: Calculate the relevance between the sentence and the abstracts. Put [citation number] of top three most relevant abstract after the sentence. Then list up summaries of selected abstracts.
+                    
+                    ## Relevance Calculation:
+                    
+                    ## Draft with citations:
+                    
+                    ## Summaries of Selected Abstracts: 
+                    
+                    \n\n
+                    Draft: {draft}"""
 
-                Instructions: Using the provided academic summaries, write a comprehensive long description about the given draft by synthesizing these summaries. You must write in English.
-                Make sure to cite results using [number] notation after the sentence. If the provided search results refer to multiple subjects with the same name, 
-                write separate answers for each subject.\n\n
+        japanese_prompt = f""": 学術抄録\n\n
+                    {references_text}
+                    \n\n
+                    指示: 提供された学術抄録を使って、与えられた草稿の各文章に、内容の変更を最小限にしてタスクを実行しなさい。
+                    タスク: 文章と抄録の関連性を計算する。最も関連性の高い抄録の上位3つの[citation number]を文の後ろに付ける。次に、選択した抄録の要約をリストアップする。
+                    
+                    ## 関連性の計算:
+                    
+                    ## 引用文献を含む草稿:
+                    
+                    ## 選択した抄録の要約: 
+                    
+                    \n\n
+                    草稿： {draft}
+                    """
 
-                Draft: {draft}\n\n
-                """
+    else:
+        raise ValueError(f"Invalid mode {mode}")
 
-    japanese_prompt = f"""学術論文の要約：\n\n
-                {cluster_summary}\n\n
-
-                参考文献： \n\n
-                {references_text}\n\n
-
-                指示: 提供された学術論文の要約を総合して、与えられた草稿について包括的な長文の説明を記述しなさい。必ず日本語で記述しなさい。
-                参考文献の引用は、必ず文の後に[number]表記で行うこと。参考文献が同じ名前で複数の主題に言及している場合は、主題ごとに別々の解答を書きなさい。
-
-                草稿： {draft}
-                
-                """
     if language == '日本語':
         return japanese_prompt
     else:
         return prompt
 
 
-def summery_writer_with_draft(cluster_summary, draft, references, model = 'gpt-4-32k',language="English"):
-    prompt = summary_writer_generate_prompt([], cluster_summary, "", language)
+def summery_writer_with_draft(cluster_summary, draft, references, model = 'gpt-4-32k',language="English", mode="only_add_citation"):
+    prompt = summary_writer_generate_prompt([], cluster_summary, "", language, mode)
     if not is_valid_tiktoken( model, prompt):
         return "Cluster summary exceeds the AI characters limit. Please regenerate your cluster summary."
 
-    prompt = summary_writer_generate_prompt([], cluster_summary, draft, language)
+    prompt = summary_writer_generate_prompt([], cluster_summary, draft, language, mode)
     if not is_valid_tiktoken( model, prompt):
         return "Your draft exceeds the AI characters limit. Please shorten the length of your draft."
 
 
     caption = "All papers were used to generate the review. "
     for i in range(len(references)):
-        prompt = summary_writer_generate_prompt(references[:i+1], cluster_summary, draft, language)
+        prompt = summary_writer_generate_prompt(references[:i+1], cluster_summary, draft, language, mode)
         if not is_valid_tiktoken(model, prompt):
-            prompt = summary_writer_generate_prompt(references[:i], cluster_summary, draft, language)
+            prompt = summary_writer_generate_prompt(references[:i], cluster_summary, draft, language, mode)
             caption = f"{i -1 } / {len(references)} papers were used to generate the review. "
             break
 
@@ -470,21 +514,22 @@ def get_paper_graph(papers_df):
     return G
 
 def extract_subgraph(G):
-    # 有向グラフの出次数が1より大きいノードだけを取得
-    large_degree = [node for node, out_degree in dict(G.out_degree()).items() if out_degree > 0]
+    # # 有向グラフの出次数が1より大きいノードだけを取得
+    # large_degree = [node for node, out_degree in dict(G.out_degree()).items() if out_degree > 0]
+    #
+    # # サブグラフの作成
+    # H_directed = G.subgraph(large_degree)
+    #
+    # # サブグラフを無向グラフに変換
+    # H_undirected = H_directed.to_undirected()
+    #
+    # # 無向グラフの次数が0より大きいノードだけを取得
+    # nodes_with_large_degree = [node for node, degree in dict(H_undirected.degree()).items() if degree > 0]
+    #
+    # # 新しいサブグラフの作成
+    # H = H_undirected.subgraph(nodes_with_large_degree)
 
-    # サブグラフの作成
-    H_directed = G.subgraph(large_degree)
-
-    # サブグラフを無向グラフに変換
-    H_undirected = H_directed.to_undirected()
-
-    # 無向グラフの次数が0より大きいノードだけを取得
-    nodes_with_large_degree = [node for node, degree in dict(H_undirected.degree()).items() if degree > 0]
-
-    # 新しいサブグラフの作成
-    H = H_undirected.subgraph(nodes_with_large_degree)
-
+    H = G.to_undirected()
     return H
 
 
@@ -493,11 +538,6 @@ def plot_subgraph(H):
     plt.figure(figsize=(10,10))
     pos = nx.spring_layout(H, seed=42)  # layoutの指定
     nx.draw(H, pos, with_labels=False, node_size=50)
-
-    # タイトルのラベルを追加
-    # for p in pos:  # ノードの位置情報を利用
-    #     pos[p][1] += 0.07
-    # nx.draw_networkx_labels(H, pos, labels=nx.get_node_attributes(H, 'title'), font_size=8)
 
     st.pyplot(plt)
 
@@ -707,7 +747,7 @@ def calc_tf_idf(df_centrality):
 
 def bibtex_to_apa(bibtex_entry):
     apa_format = ""
-    if not bibtex_entry:
+    if not bibtex_entry or pd.isna(bibtex_entry):
         return ""
     bibtex_entry = bibtex_entry['bibtex']
 
@@ -770,15 +810,29 @@ def set_paper_information(papers):
     return papers
 
 
+def save_values():
+    print(st.session_state)
+    st.experimental_set_query_params(**st.session_state)
+    params = st.experimental_get_query_params()
+    print(params)
+
 
 if __name__=='__main__':
-    response = "近年、社会ロボットやAIとのインタラクションが人間の感情調整に効果的であることが明らかとなりました。特に、これらの技術が子供たちの感情調整をサポートする能力が注目されています。" \
-               "一部の研究では、マルチ重み付けマルコフ決定プロセス感情調整（MDPER）ロボットが作成され、その結果、人間とロボット間の感情調整が可能となっています[1]。" \
-               "加えて、子供たちが社会ロボットとのストーリーテリング活動で創造性を発揮する際に感情調整技術が有効に使われています[2]。" \
-                "このような発展により、「感情の視覚表現や温度の表現」を通じてロボットが感情を伝達し、子供の感情調節を支援するという新しい可能性が生まれてきました[13,20,16,7]。" \
-               "具体的には、社会ロボットの感情的なアイジェスチャーを設計するフレームワークが研究されており[20]、このフレームワークを使用すれば、ロボットは視覚的表現を通じて子供たちに自らの感情状態を伝達できるようになるでしょう。" \
-               "子供たちが自身の感情をより効果的に制御できるようになったと報告されています[10-13]。" \
-               "また、自閉スペクトラム障害（ASD）の子供たちも、社会感情スキルとSTEMの学習を同時に進めるために、AIとのインタラクションを通じた学習が行われており、有用性が確認されています[4]。" \
-               "しかし、それらの技術や方法がまだ発展段階にあることを忘れてはなりません。より効果的な感情調整手段、具体的な介入方法、効率的な学習手法を見つけて、これらのツールを生かすためには、引き続き研究が必要となります。"
-
-    print(extract_reference_indices(response))
+    # response = "近年、社会ロボットやAIとのインタラクションが人間の感情調整に効果的であることが明らかとなりました。特に、これらの技術が子供たちの感情調整をサポートする能力が注目されています。" \
+    #            "一部の研究では、マルチ重み付けマルコフ決定プロセス感情調整（MDPER）ロボットが作成され、その結果、人間とロボット間の感情調整が可能となっています[1]。" \
+    #            "加えて、子供たちが社会ロボットとのストーリーテリング活動で創造性を発揮する際に感情調整技術が有効に使われています[2]。" \
+    #             "このような発展により、「感情の視覚表現や温度の表現」を通じてロボットが感情を伝達し、子供の感情調節を支援するという新しい可能性が生まれてきました[13,20,16,7]。" \
+    #            "具体的には、社会ロボットの感情的なアイジェスチャーを設計するフレームワークが研究されており[20]、このフレームワークを使用すれば、ロボットは視覚的表現を通じて子供たちに自らの感情状態を伝達できるようになるでしょう。" \
+    #            "子供たちが自身の感情をより効果的に制御できるようになったと報告されています[10-13]。" \
+    #            "また、自閉スペクトラム障害（ASD）の子供たちも、社会感情スキルとSTEMの学習を同時に進めるために、AIとのインタラクションを通じた学習が行われており、有用性が確認されています[4]。" \
+    #            "しかし、それらの技術や方法がまだ発展段階にあることを忘れてはなりません。より効果的な感情調整手段、具体的な介入方法、効率的な学習手法を見つけて、これらのツールを生かすためには、引き続き研究が必要となります。"
+    #
+    # print(extract_reference_indices(response))
+    set_button = st.button("SET")
+    if set_button:
+        st.session_state['a'] = 0
+        st.session_state['b'] = {"1": 2, (4,): 3}
+    save_values()
+    refresh_button = st.button("REFRESH")
+    if refresh_button:
+        st.experimental_rerun()
