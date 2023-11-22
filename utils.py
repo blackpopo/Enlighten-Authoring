@@ -15,23 +15,31 @@ import tqdm
 import plotly.graph_objects as go
 import networkx as nx
 import openai
+from openai import OpenAI
 import streamlit as st
 from sklearn.feature_extraction.text import TfidfVectorizer
 from collections import defaultdict
 import numpy as np
 import community as community_louvain # python-louvain packageをインストールする必要があるわ
+import json
+import plotly.graph_objs as go
+
 
 OPENAI_API_KEY = st.secrets['OPENAI_API_KEY']
 DEEPL_API_KEY = st.secrets['DEEPL_API_KEY']
 SEMANTICSCHOLAR_API_KEY = st.secrets['SEMANTICSCHOLAR_API_KEY']
 AZURE_OPENAI_API_KEY = st.secrets['AZURE_OPENAI_KEY']
 AZURE_OPENAI_ENDPOINT = st.secrets['AZURE_OPENAI_ENDPOINT']
-    
-# openai.api_key = OPENAI_API_KEY
-openai.api_key = AZURE_OPENAI_API_KEY
-openai.api_base = AZURE_OPENAI_ENDPOINT
-openai.api_type = 'azure'
-openai.api_version = '2023-05-15'
+
+# OPEN AI の API を設定する場合
+openai.api_key = OPENAI_API_KEY
+client = OpenAI(api_key=OPENAI_API_KEY)
+
+# AZURE OPEN AI の API を設定する場合
+# openai.api_key = AZURE_OPENAI_API_KEY
+# openai.api_base = AZURE_OPENAI_ENDPOINT
+# openai.api_type = 'azure'
+# openai.api_version = '2023-05-15'
 
 
 def tiktoken_setup(offset = 8):
@@ -39,26 +47,55 @@ def tiktoken_setup(offset = 8):
     gpt_35_16k_tiktoken = tiktoken.encoding_for_model("gpt-4-32k")
     gpt_4_tiktoken = tiktoken.encoding_for_model("gpt-4")
     gpt_4_32k_tiktoken = tiktoken.encoding_for_model("gpt-4-32k")
+    gpt_4_turbo_tiktoken = tiktoken.encoding_for_model("gpt-4-1106-preview")
 
     tiktoken_dict = {
         "gpt-3.5-turbo": (gpt_35_tiktoken, 4097 - offset),
         "gpt-3.5-turbo-16k": (gpt_35_16k_tiktoken, 16385 - offset),
+        "gpt-3.5-turbo-1106": (gpt_35_tiktoken, 16385 - offset),
         "gpt-4": (gpt_4_tiktoken, 8192 - offset),
         "gpt-4-32k": (gpt_4_32k_tiktoken, 32768 - offset),
+        "gpt-4-1106-preview": (gpt_4_turbo_tiktoken, 128000 - offset)
     }
     return tiktoken_dict
 
 tiktoken_dict = tiktoken_setup()
 
 def get_azure_gpt_response(system_input, model_name='gpt-4-32k'):
-    response = openai.ChatCompletion.create(
-        engine=model_name,
+    response = client.chat.completions.create(
+        model= model_name,
         messages=[
           {"role": "system", "content": system_input},
         ],
     )
-
     return response.choices[0]["message"]["content"].strip()
+
+def get_azure_gpt_response_stream(system_input, model_name='gpt-4-32k'):
+    response = client.chat.completions.create(
+        model= model_name,
+        messages=[
+          {"role": "system", "content": system_input},
+        ],
+        stream = True
+    )
+    return response
+
+def get_azure_gpt_response_json(system_input, model_name='gpt-4'):
+    if 'gpt-3.5' in model_name:
+        model = 'gpt-3.5-turbo-1106'
+    elif 'gpt-4' in model_name:
+        model = 'gpt-4-1106-preview'
+    else:
+        raise ValueError(f"model name {model_name}")
+    response = client.chat.completions.create(
+        model= model,
+        messages=[
+          {"role": "system", "content": system_input},
+        ],
+        response_format={"type" : 'json_object'}
+    )
+    print(response)
+    return json.loads(response.choices[0].message.content)
 
 #クエリにもとづいて、Semantic Scholar から論文を offset を始めとして、 limit 分取得する。ただし、完全一致の論文のみが送信される。
 def suggest_paper_completions(query):
@@ -322,7 +359,7 @@ def title_review_generate_prompt(abstracts, query_text, language):
 
                 ## Treatments ##
 
-                You must reply in English and write as long as possible.
+                You must reply in English in Markdown format. and write as long as possible.
                 """
 
     japanese_prompt = f"""以下は学術論文のアブストラクトです。\n\n
@@ -364,7 +401,7 @@ def title_review_generate_prompt(abstracts, query_text, language):
                         - \n
                         - \n
                         \n
-                        回答にあたっては、[number]という形式で引用を明記してください。必ず日本語で回答してください。\n
+                        回答にあたっては、[number]という形式で引用を明記してください。必ず Markdown 形式の日本語で回答してください。\n
                         では、深呼吸をして回答に取り組んでください。\n
                         """
 
@@ -375,7 +412,27 @@ def title_review_generate_prompt(abstracts, query_text, language):
 
 
 #論文のレビュー部分
-def title_review_papers(papers, query_text, model = 'gpt-4-32k', language="English"):
+# def title_review_papers(papers, query_text, model = 'gpt-4-32k', language="English"):
+#     abstracts = []
+#     linked_apas = []
+#     titles = []
+#     prompt = title_review_generate_prompt([], query_text, language)
+#     caption = f"{len(papers)} 件の論文がレビューに使用されました。"
+#     for i, (title, abstract, year, link) in enumerate(zip(papers["title"], papers["abstract"], papers['year'], papers['linked_APA']), 1):
+#         text = f"[{i}] (Published in {year}) {title}\n{abstract}"
+#         abstracts.append(text)
+#         linked_apas.append(f"[{i}] : {link}")
+#         titles.append(f"[{i}] : {title}\n{abstract}")
+#
+#         prompt = title_review_generate_prompt(abstracts, query_text, language)
+#         if not is_valid_tiktoken(model, prompt):
+#             prompt = title_review_generate_prompt(abstracts[:-1], query_text, language)
+#             caption = f"{i - 1} / {len(papers)} 件の論文がレビューに使用されました。"
+#             break
+#     cluster_summary = get_azure_gpt_response(prompt, model)
+#     return cluster_summary, linked_apas, caption, titles
+
+def streamlit_title_review_papers(papers, query_text, model = 'gpt-4-32k', language="English"):
     abstracts = []
     linked_apas = []
     titles = []
@@ -392,14 +449,19 @@ def title_review_papers(papers, query_text, model = 'gpt-4-32k', language="Engli
             prompt = title_review_generate_prompt(abstracts[:-1], query_text, language)
             caption = f"{i - 1} / {len(papers)} 件の論文がレビューに使用されました。"
             break
-    cluster_summary = get_azure_gpt_response(prompt, model)
+    result = st.empty()
+    cluster_summary = ""
+    for response in get_azure_gpt_response_stream(prompt, model):
+        response_text = response.choices[0].delta.content
+        if response_text:
+            cluster_summary += response_text
+            result.write(cluster_summary)
+    result.empty()
     return cluster_summary, linked_apas, caption, titles
 
 
 #論文のリバイズ部分
 def summary_writer_generate_prompt(references, cluster_summary, draft, language, mode):
-
-
     references_text = "\n\n".join(references)
 
     if mode == "revise_and_add_citation":
@@ -409,7 +471,7 @@ def summary_writer_generate_prompt(references, cluster_summary, draft, language,
                     References:\n\n
                     {references_text}\n\n
     
-                    Instructions: Using the provided academic summaries, write a comprehensive long description about the given draft by synthesizing these summaries. You must write in English.
+                    Instructions: Using the provided academic summaries, write a comprehensive long description about the given draft by synthesizing these summaries. You must write in English in Markdown format.
                     Make sure to cite results using [number] notation after the sentence. If the provided search results refer to multiple subjects with the same name, 
                     write separate answers for each subject.\n\n
     
@@ -422,7 +484,7 @@ def summary_writer_generate_prompt(references, cluster_summary, draft, language,
                     参考文献： \n\n
                     {references_text}\n\n
     
-                    指示: 提供された学術論文の要約を総合して、与えられた草稿について包括的な長文の説明を記述しなさい。必ず日本語で記述しなさい。
+                    指示: 提供された学術論文の要約を総合して、与えられた草稿について包括的な長文の説明を記述しなさい。必ず Markdown 形式の日本語で記述しなさい。
                     参考文献の引用は、必ず文の後に[number]表記で行うこと。参考文献が同じ名前で複数の主題に言及している場合は、主題ごとに別々の解答を書きなさい。
     
                     草稿： {draft}
@@ -468,8 +530,29 @@ def summary_writer_generate_prompt(references, cluster_summary, draft, language,
     else:
         return prompt
 
+#
+# def summery_writer_with_draft(cluster_summary, draft, references, model = 'gpt-4-32k',language="English", mode="only_add_citation"):
+#     prompt = summary_writer_generate_prompt([], cluster_summary, "", language, mode)
+#     if not is_valid_tiktoken( model, prompt):
+#         return "Cluster summary exceeds the AI characters limit. Please regenerate your cluster summary."
+#
+#     prompt = summary_writer_generate_prompt([], cluster_summary, draft, language, mode)
+#     if not is_valid_tiktoken( model, prompt):
+#         return "Your draft exceeds the AI characters limit. Please shorten the length of your draft."
+#
+#
+#     caption = "All papers were used to generate the review. "
+#     for i in range(len(references)):
+#         prompt = summary_writer_generate_prompt(references[:i+1], cluster_summary, draft, language, mode)
+#         if not is_valid_tiktoken(model, prompt):
+#             prompt = summary_writer_generate_prompt(references[:i], cluster_summary, draft, language, mode)
+#             caption = f"{i -1 } / {len(references)} papers were used to generate the review. "
+#             break
+#
+#     summary = get_azure_gpt_response(prompt, 'gpt-4-32k')
+#     return summary, caption
 
-def summery_writer_with_draft(cluster_summary, draft, references, model = 'gpt-4-32k',language="English", mode="only_add_citation"):
+def streamlit_summery_writer_with_draft(cluster_summary, draft, references, model = 'gpt-4-32k',language="English", mode="only_add_citation"):
     prompt = summary_writer_generate_prompt([], cluster_summary, "", language, mode)
     if not is_valid_tiktoken( model, prompt):
         return "Cluster summary exceeds the AI characters limit. Please regenerate your cluster summary."
@@ -487,11 +570,143 @@ def summery_writer_with_draft(cluster_summary, draft, references, model = 'gpt-4
             caption = f"{i -1 } / {len(references)} papers were used to generate the review. "
             break
 
-    summary = get_azure_gpt_response(prompt, 'gpt-4-32k')
+    result = st.empty()
+    summary = ""
+    for response in get_azure_gpt_response_stream(prompt, model):
+        response_text = response.choices[0].delta.content
+        if response_text:
+            summary += response_text
+            result.write(summary)
+    result.empty()
     return summary, caption
 
+@st.cache_resource
+def override_get_azure_gpt_response( top_pagerank_by_cluster, model):
+    prompt = cluster_one_line_generate_prompt(top_pagerank_by_cluster)
+    json_response =  get_azure_gpt_response_json(prompt, model)
+    return pd.DataFrame(json_response['data'])
 
-# DiGraphの初期化
+def add_key_sentences_to_cluster_df(cluster_df, one_line_dataframe):
+    # cluster_dfに新しい列を追加
+    cluster_df['key_sentence'] = ""
+
+    # one_line_dataframeの各行に対してループ
+    for index, row in one_line_dataframe.iterrows():
+        cluster_id = row['cluster_id']
+        title = row['title']
+
+        # 対応するcluster_dfの行を見つけ、key_sentenceを更新
+        cluster_df.loc[cluster_df.index == cluster_id, 'ClusterKeySentence'] = title
+
+    return cluster_df
+def cluster_one_line_generate_prompt(top_pagerank_by_cluster):
+    references_text = ""
+    for cluster_id, data_frame in top_pagerank_by_cluster:
+        references_text += f"クラスタ番号: {cluster_id}\n"
+        for title in data_frame['Title']:
+            title = title.replace('From:', '').replace('To:', '')
+            references_text += f" - {title}\n"
+        references_text += '\n\n'
+
+    json_format = "{" \
+                  " 'data' : [" \
+                    "" \
+                  "{ 'cluster_id': クラスタ番号を数字で出力, " \
+                    " 'title': 一行にまとめたタイトルを日本語で出力" \
+                  "},..." \
+                  " ]" \
+                  "}"
+
+    japanese_prompt = f""": 論文タイトル\n\n
+                {references_text}
+                \n\n
+                指示: クラスタ番号ごとに提供された論文のタイトルを使って、与えられたクラスタ番号ごとにタスクを実行しなさい。
+                タスク: 各クラスタの論文タイトルをまとめて一行の日本語タイトルを作り、以下のJSON のフォーマットで出力する。
+                
+                JSONフォーマット: \n
+                {json_format}
+                """
+    return japanese_prompt
+
+@st.cache_resource
+def cluster_one_line_explanation(cluster_df, df_centrality, model = 'gpt-4-1106-preview'):
+    filtered_cluster_df = cluster_df[cluster_df['Node'] > 10]
+    cluster_ids = filtered_cluster_df.index.tolist()
+    # 各クラスタIDに対してループ
+    for topk in range(5, 0, -1):
+        top_pagerank_by_cluster = []
+        for cluster_id in cluster_ids:
+            # 特定のクラスタIDに該当する行をフィルタリング
+            cluster_data = df_centrality[df_centrality['Cluster'] == cluster_id]
+
+            # PageRank でソートし、上位5件を取得
+            top_entries = cluster_data.nlargest(topk, 'PageRank')
+
+            # 結果リストに追加
+            top_pagerank_by_cluster.append((cluster_id, top_entries))
+
+        prompt = cluster_one_line_generate_prompt(top_pagerank_by_cluster)
+
+        if is_valid_tiktoken(model, prompt):
+            break
+
+    if not is_valid_tiktoken(model, prompt):
+        return cluster_df
+
+    one_line_dataframe = override_get_azure_gpt_response(top_pagerank_by_cluster, model)
+    # 関数を使用してデータを更新
+    updated_cluster_df = add_key_sentences_to_cluster_df(cluster_df, one_line_dataframe)
+    return updated_cluster_df
+
+
+def japanese_abstract_generate_prompt(papers):
+    references_text = ""
+    for paper_id, abstract in papers.iterrows():
+        references_text += f"paper_id: {paper_id}\n"
+        references_text += f"abstract: {abstract['abstract']}"
+        references_text += '\n\n'
+
+    json_format = "{" \
+                  " 'data' : [" \
+                  "" \
+                  "{  'paper_index' : 論文番号を数字で出力, " \
+                    " 'japanese_abstract': abstractを日本語に翻訳して出力" \
+                  "},..." \
+                  " ]" \
+                  "}"
+
+    japanese_prompt = f""": 論文タイトル\n\n
+                {references_text}
+                \n\n
+                指示: paper_index ごとに提供された abstract を使って、与えられた論文番号ごとにタスクを実行しなさい。
+                タスク: 各論文の　abstract　を日本語に翻訳して、以下のJSON のフォーマットで出力する。
+
+                JSONフォーマット: \n
+                {json_format}
+                """
+    return japanese_prompt
+def add_japanese_abstract(papers, model = 'gpt-4-1106-preview', separation = 10):
+    #abstract を含む論文の抜き出し
+    papers = papers.reset_index()
+    filtered_papers = papers[papers['abstract'].notnull()]
+    #100件ずつでプロンプトを作る
+    times = len(filtered_papers) // separation + 1
+    # 'papers' のインデックスを 'paper_index' という列名で列に変換
+    result_dataframe = []
+    for time in range(times):
+        temp_filtered_papers = filtered_papers[time * separation: (time + 1) * separation]
+        prompt = japanese_abstract_generate_prompt(temp_filtered_papers)
+        if not is_valid_tiktoken(model, prompt):
+            add_japanese_abstract(papers, model, int(separation / 2 ))
+
+        japanese_abstract_dataframe = get_azure_gpt_response_json(prompt, model)['data']
+        result_dataframe.append(japanese_abstract_dataframe)
+    abstract_dataframe = pd.concat(result_dataframe)
+    papers = pd.merge(papers, abstract_dataframe, left_on='index', right_on='paper_index', how='left')
+    papers = papers.set_index('index')
+    papers.drop(columns=['paper_index'], inplace=True)
+    print(papers.head())
+    return papers
 
 def get_paper_graph(papers_df):
     # DiGraphの初期化
@@ -500,11 +715,11 @@ def get_paper_graph(papers_df):
     for k in tqdm.tqdm(range(len(papers_df))):  # 0 ~ len(papers_df)-1
         # ノードの追加
         if papers_df.loc[k, 'paperId'] is not None:
-            G.add_node(papers_df.loc[k, 'paperId'], title=f"From:{papers_df.loc[k, 'title']}", year=papers_df.loc[k, 'year'])
+            G.add_node(papers_df.loc[k, 'paperId'], title=f"From:{papers_df.loc[k, 'title']}", year=papers_df.loc[k, 'year'], citationCount=papers_df.loc[k, 'citationCount'])
 
         for reference in papers_df.loc[k, 'references']:
             if reference['paperId'] is not None:
-                G.add_node(reference['paperId'], title=f"To:{reference['title']}", year=reference['year'])
+                G.add_node(reference['paperId'], title=f"To:{reference['title']}", year=reference['year'], citationCount=reference['citationCount'])
 
         # エッジの追加
         for reference in papers_df.loc[k, 'references']:
@@ -864,66 +1079,41 @@ def bezier_curve(points_x, points_y, num_of_points):
 def bernstein_poly(i, n, t):
     # ベルンシュタイン多項式を計算
     return comb(n, i) * (t ** (n - i)) * (1 - t) ** i
-def plot_research_front():
-    for require_key in ['partition', 'G', 'H']:
-        if not require_key in st.session_state:
-            return
-            # quotient_graphに渡すために、community_louvainの出力であるpartitionをコミュニティのセットに変換する
+
+def process_display_cluster():
+    display_cluster = st.session_state['cluster_df'].copy()
+    display_cluster['Year'] = display_cluster['Year'].apply(lambda x: int(x.split('.')[0]))
+    return display_cluster
+
+@st.cache_data
+def process_communities(display_cluster):
     communities = defaultdict(list)
     for node, comm_id in st.session_state['partition'].items():
         communities[comm_id].append(node)
 
-    # `edge_data` 関数を `partial` を使用して `G` で部分適用する
-    edge_data_fixed = partial(edge_data, G=st.session_state['G'])  # `G` を `edge_data` 関数に固定する
-
-    # ブロックモデルの作成（Hは論文の引用関係を示した無向グラフ）
+    edge_data_fixed = partial(edge_data, G=st.session_state['G'])
     block_model_graph = nx.quotient_graph(st.session_state['H'], communities, relabel=True, edge_data=edge_data_fixed)
 
-    # 前提として、gbデータフレームのCluster IDはコミュニティのラベルに対応しているとします。
-    # gbはCluster IDをindexとするデータフレームで、Year列にはクラスタのノードの平均年が入っています。
-
-    display_cluster = st.session_state['cluster_df'].copy()
-    display_cluster['Year'] = display_cluster['Year'].apply(lambda x: int(x.split('.')[0]))
-    # コミュニティのラベルを年でソート
     sorted_communities_by_year = display_cluster.sort_values('Year').index.tolist()
 
-    # ブロックモデルグラフのノードリストを取得
-    block_nodes = list(block_model_graph.nodes)
 
-    # 各コミュニティのY座標をランダムにするために、randomize_y_position関数を使います。
     y_positions = randomize_y_position(-1, 1, set(), len(sorted_communities_by_year))
-
-    # ソートされたコミュニティに基づいて位置情報を設定する
     pos = {node: (index, y) for index, (node, y) in enumerate(zip(sorted_communities_by_year, y_positions))}
+    pos = {node: pos[node] for node in block_model_graph.nodes() if node in pos}
 
-    # 位置情報を更新する
-    pos = {node: pos[node] for node in block_nodes if node in pos}
+    return block_model_graph,  pos
 
-    # エッジの重みをリストとして抽出します
-    weights = nx.get_edge_attributes(block_model_graph, 'weight').values()
+@st.cache_resource
+def process_edges(_block_model_graph, pos):
+    weights = nx.get_edge_attributes(_block_model_graph, 'weight').values()
     max_weight = max(weights) if weights else 1
     widths = [w * 5.0 / max_weight for w in weights]  # 重みに比例するようにエッジの太さを設定
 
-    # ノードサイズのスケーリング用の基本値を設定
-    size_base = 10
-    min_size = size_base
-    max_size = size_base * 10  # 最大サイズを最小サイズの5倍とします
-
-    # Node数の最小値と最大値を取得
-    min_citations = display_cluster['Node'].min()
-    max_citations = display_cluster['Node'].max()
-
-    # ノードサイズをNode数に基づいて設定
-    sizes = [((citationCount - min_citations) / (max_citations - min_citations) * (max_size - min_size) + min_size)
-             if max_citations > min_citations else min_size for citationCount in display_cluster.loc[block_nodes, 'Node']]
-
-
-    # エッジを描画
     edge_traces = []  # エッジのための複数のtraceを保持するリストを作成
 
-    for (edge, width) in zip(block_model_graph.edges(), widths):
-        x0, y0 = pos[edge[0]]
-        x1, y1 = pos[edge[1]]
+    for (edge, width) in zip(_block_model_graph.edges(), widths):
+        # x0, y0 = pos[edge[0]]
+        # x1, y1 = pos[edge[1]]
         # エッジごとにtraceを作成し、それぞれの太さを設定
         #     edge_trace = go.Scatter(
         #         x=[x0, x1, None], y=[y0, y1, None],
@@ -933,18 +1123,38 @@ def plot_research_front():
         edge_trace = edge_to_curved_trace(edge, pos, width, curvature=0.4)
         edge_traces.append(edge_trace)  # 新しいtraceをリストに追加
 
+    return edge_traces, weights
+
+@st.cache_data
+def process_sizes(_block_model_graph, display_cluster):
+    min_citations = display_cluster['Node'].min()
+    max_citations = display_cluster['Node'].max()
+    size_base = 10
+    min_size = size_base
+    max_size = size_base * 10
+    # ブロックモデルグラフのノードリストを取得
+    block_nodes = list(_block_model_graph.nodes)
+
+    sizes = [((citationCount - min_citations) / (max_citations - min_citations) * (max_size - min_size) + min_size)
+             if max_citations > min_citations else min_size for citationCount in display_cluster.loc[block_nodes, 'Node']]
+
+    return sizes, block_nodes
+def process_nodes(_block_model_graph, pos, display_cluster):
     # ノードの情報を抽出
     node_x = []
     node_y = []
     node_text = []
 
-    for node in block_model_graph.nodes():
+    for node in _block_model_graph.nodes():
         x, y = pos[node]
         node_x.append(x)
         node_y.append(y)
         # 'Keywords'列からホバーテキストを生成
         node_text.append(
             f"{node}: {int(display_cluster.loc[node, 'Year'])}年({display_cluster.loc[node, 'Recent5YearsCount']}/{display_cluster.loc[node, 'Node']}) ({display_cluster.loc[node, 'CitationCount']}) {display_cluster.loc[node, 'ClusterKeywords']}")  # gbがクラスタの情報を含むDataFrameと仮定
+    return   node_x, node_y, node_text
+
+def create_plot(sizes, block_nodes, node_x, node_y, node_text,  edge_traces):
 
     # クラスタ番号を表示するための追加のScatterトレースを作成
     cluster_number_trace = go.Scatter(
@@ -980,26 +1190,40 @@ def plot_research_front():
         textposition="bottom center"  # ラベルの位置
     )
 
-    # レイアウトとプロットの作成
+
+    # レイアウトの作成
     layout = go.Layout(
         title='クラスタの時間的な発展',
         titlefont_size=16,
         showlegend=False,
         hovermode='closest',
-        margin=dict(b=20, l=5, r=5, t=40),
+        margin=dict(b=20, l=5, r=5, t=40),  # 右側のマージンを増やしてグラフを左に移動
         annotations=[dict(
             text="円の大きさ:論文数, 辺の太さ:クラスタの関連性, X軸:出版年の新しさ, 注釈:[平均出版年]（5年以内の論文数/総論文数）(平均被引用回数)[キーワード]",
             showarrow=False,
             xref="paper", yref="paper",
             x=0.005, y=-0.002)],
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False)
+        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+        height=600,
+        width=1200,
     )
 
     # フィギュアの作成
     fig = go.Figure(data=[node_trace, cluster_number_trace] + edge_traces, layout=layout)
+
     # Streamlitでのプロットの表示
     st.plotly_chart(fig)
+
+def plot_research_front():
+    # 元の関数の実行部分
+    display_cluster = process_display_cluster()
+    block_model_graph,  pos = process_communities(display_cluster)
+    edge_traces, weights = process_edges(block_model_graph, pos)
+    sizes, block_nodes  = process_sizes(block_model_graph, display_cluster)
+    node_x, node_y, node_text = process_nodes(block_model_graph, pos, display_cluster)
+    create_plot(sizes, block_nodes, node_x, node_y, node_text,  edge_traces)
+
 
 if __name__=='__main__':
     # response = "近年、社会ロボットやAIとのインタラクションが人間の感情調整に効果的であることが明らかとなりました。特に、これらの技術が子供たちの感情調整をサポートする能力が注目されています。" \

@@ -1,3 +1,5 @@
+import streamlit.runtime.state
+
 from streamlit_utils import *
 import os
 from utils import *
@@ -52,7 +54,7 @@ def research_papers():
         #検索からの結果かデータベースに保存していた結果であることの表示
         if total:
             display_description(f"Semantic Scholar からの検索が完了しました。")
-            display_description(f"{len(st.session_state['papers_df'])} / {total} の論文を取得しました。")
+            display_description(f"{len(st.session_state['papers_df'])} / {total} の論文を取得しました。\n参考文献を含めて {len(st.session_state['all_papers_df'])} 件の論文を取得しました。")
         else:
             display_description(f"データベースに保存されていた検索結果の読み込みが完了しました。")
-            display_description(f"検索履歴から {len(st.session_state['papers_df'])} 件の論文を取得しました。")
+            display_description(f"検索履歴から {len(st.session_state['papers_df'])} 件の論文を取得しました。\n参考文献を含めて {len(st.session_state['all_papers_df'])} 件の論文を取得しました。")

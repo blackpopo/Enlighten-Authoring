@@ -52,8 +52,13 @@ def display_cluster_dataframe(df, title, topk):
     df['author names'] = df['authors'].apply(lambda x: [d.get('name') for d in x] if isinstance(x, list) else None)
     df['citation count'] = df['citationCount']
     df['published year'] = df['year'].apply(lambda x: str(x).replace('.0', ''))
-    df = df[['Title', 'Importance', 'abstract', 'published year', 'citation count', 'journal name', 'author names']]
-    df.columns = ['Title', 'Importance', 'Abstract', 'Published Year', 'Citation Count', 'Journal Name', 'Author Names']
+
+    if not 'japanese abstract' in df.columns:
+        df = df[['Title', 'Importance', 'abstract', 'published year', 'citation count', 'journal name', 'author names']]
+        df.columns = ['Title', 'Importance', 'Abstract', 'Published Year', 'Citation Count', 'Journal Name', 'Author Names']
+    else:
+        df = df[['Title', 'Importance', 'japanese abstract', 'abstract', 'published year', 'citation count', 'journal name', 'author names']]
+        df.columns = ['Title', 'Importance', 'Japanese Abstract', 'Abstract', 'Published Year', 'Citation Count', 'Journal Name', 'Author Names']
     st.dataframe(df.head(topk), hide_index=True)
 
 def display_dataframe_detail(df, title, topk):
@@ -77,8 +82,12 @@ def display_dataframe_detail(df, title, topk):
     df['author names'] = df['authors'].apply(lambda x: [d.get('name') for d in x] if isinstance(x, list) else None)
     df['citation count'] = df['citationCount']
     df['published year'] = df['year'].apply(lambda x: str(x))
-    df = df[['title', 'abstract', 'published year', 'citation count', 'journal name', 'author names']]
-    df.columns =  ['Title',  'Abstract', 'Published Year', 'Citation Count', 'Journal Name', 'Author Names']
+    if not 'japanese_abstract' in df.columns:
+        df = df[['title', 'abstract', 'published year', 'citation count', 'journal name', 'author names']]
+        df.columns =  ['Title',  'Abstract', 'Published Year', 'Citation Count', 'Journal Name', 'Author Names']
+    else:
+        df = df[['title', 'japanese abstract','abstract', 'published year', 'citation count', 'journal name', 'author names']]
+        df.columns =  ['Title', 'Japanese Abstract',  'Abstract', 'Published Year', 'Citation Count', 'Journal Name', 'Author Names']
     st.dataframe(df.head(topk), hide_index=True)
 
 def display_title():
@@ -86,16 +95,16 @@ def display_title():
     st.markdown("<strong>臨床的位置づけ立案支援AI: 専門情報のレビューと文章へのエビデンスの付与を行います</strong>", unsafe_allow_html=True)
 
 
-def display_list(text_list, size=4):
-    if not isinstance(text_list, list):
-        st.write("文字列のリストを入力してください")
-        return
-
-    for text in text_list:
-        st.write(
-            f"<h{size} style='text-align: left;'> {text} </h{size}>",
-            unsafe_allow_html=True,
-        )
+# def display_list(text_list, size=4):
+#     if not isinstance(text_list, list):
+#         st.write("文字列のリストを入力してください")
+#         return
+#
+#     for text in text_list:
+#         st.write(
+#             f"<h{size} style='text-align: left;'> {text} </h{size}>",
+#             unsafe_allow_html=True,
+#         )
 
 
 def display_description(description_text = 'This is application description.', size=5):
@@ -169,7 +178,20 @@ def display_cluster_years(df: pd.DataFrame):
     paper_count_by_year = df['year'].value_counts().sort_index()
 
     # 横軸の設定
-    x_ticks = range(int(paper_count_by_year.index.min()), current_year + 1)
+    start_year = int(paper_count_by_year.index.min())
+    end_year = current_year
+    if end_year - start_year >= 50:
+        x_ticks_list = list(range(end_year, start_year, -5))[::-1]
+        x_ticks_list[0] = start_year
+        x_ticks = x_ticks_list  # 5年ごとの年をx_ticksに設定
+    elif 50 > end_year - start_year  >= 10:
+        x_ticks_list = list(range(end_year, start_year, -3))[::-1]
+        x_ticks_list[0] = start_year
+        x_ticks = x_ticks_list  # 5年ごとの年をx_ticksに設定
+    else:
+        x_ticks_list = list(range(end_year, start_year, -1))[::-1]
+        x_ticks_list[0] = start_year
+        x_ticks = x_ticks_list  # 5年ごとの年をx_ticksに設定
 
     # Matplotlib で折れ線グラフ作成
     plt.figure(figsize=(12, 6))
@@ -235,12 +257,6 @@ def dump_logs(query, response, success=True):
 
 
 
-def reset_session(session_state):
-    keys_to_remove = ['papers', 'papers_df', 'H', 'cluster_candidates', 'cluster_df', 'selected_number',
-                      'cluster_review_response', 'summary_response']
-    for key in keys_to_remove:
-        if key in session_state:
-            session_state.pop(key)
 
 def all_reset_session(session_state, except_key):
     for key in session_state:

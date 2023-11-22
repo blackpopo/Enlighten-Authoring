@@ -1,4 +1,8 @@
+import statistics
+
 import streamlit
+import streamlit.runtime.session_manager
+import streamlit.runtime.state
 
 from streamlit_utils import *
 from utils import *
@@ -49,6 +53,7 @@ def construct_cluster_component():
                     'Year': 'mean'
                 })
             cluster_df['Year'] = cluster_df['Year'].apply(lambda x: str(round(x, 2)))
+            cluster_df['CitationCount'] = cluster_df['CitationCount'].apply(lambda x: str(round(x, 2)))
 
             # 直近の年を特定
             # latest_year = df_centrality['Year'].max()
@@ -61,9 +66,13 @@ def construct_cluster_component():
             cluster_df['Recent5YearsCount'] = cluster_df.index.map(recent_counts)
             cluster_df['Recent5YearsCount'] = cluster_df['Recent5YearsCount'].fillna(0).astype(int)
             cluster_df["ClusterKeywords"] = cluster_df.index.map(lambda x: ', '.join(cluster_keywords[x]))
+            st.session_state['cluster_df'] = cluster_df
+
+            cluster_df = cluster_one_line_explanation(cluster_df, st.session_state['df_centrality'])
 
             st.session_state['cluster_df'] = cluster_df
             st.session_state['partition'] = partition
+
 
             #Cluster ID から Paper ID のリストを取得するリスト
             cluster_id_paper_ids = defaultdict(list)
@@ -73,17 +82,13 @@ def construct_cluster_component():
 
 def display_cluster_component():
     if 'cluster_df' in st.session_state.keys():
-
-        with st.spinner("⏳ クラスターの時間的な発展を描画中です。お待ち下さい。"):
-            plot_research_front()
-
-        display_spaces(2)
         display_clusters = st.session_state['cluster_df'][st.session_state['cluster_df']['Node'] > 10]
         cluster_candidates = display_clusters.index.tolist()
         display_clusters = display_clusters.sort_values('Node', ascending=False)
         #あとで使用する情報の保存
         st.session_state['cluster_candidates'] = cluster_candidates
         st.session_state['cluster_keywords'] = display_clusters['ClusterKeywords'].values
+        st.session_state['cluster_key_sentences'] = display_clusters['ClusterKeySentence'].values
 
         for cluster_number in display_clusters.index:
             selected_paper_ids = st.session_state['cluster_id_to_paper_ids'][cluster_number]
@@ -94,11 +99,19 @@ def display_cluster_component():
                 'Node': "文献数",
                 "Year": "平均年",
                 'Recent5YearsCount' : "直近5年の文献数",
+                "ClusterKeySentence": "クラスタの説明",
                 "ClusterKeywords": "キーワード",
+                # "CitationCount" : "引用年の中央値"
+
             }
         display_clusters.index.name = "クラスタ番号"
         display_clusters.rename(columns= rename_columns, inplace=True)
 
+
+        with st.spinner("⏳ クラスターの時間的な発展を描画中です。お待ち下さい。"):
+            plot_research_front()
+
+        display_spaces(2)
         display_dataframe(display_clusters, f'クラスタに含まれる文献数とキーワード', len(display_clusters), list(rename_columns.values()))
 
 
@@ -133,17 +146,25 @@ def display_each_cluster_component():
             temp_cluster_df_detail = temp_cluster_df_detail.sort_values("year", ascending=False)
         else:
             raise ValueError(f"Invalid Sort {cluster_sort}")
-        display_cluster_dataframe(temp_cluster_df_detail, f'クラスタ番号 {selected_number} 内での検索結果上位 20 件', 20)
 
+
+        if 'number_of_cluster_review_papers' in st.session_state:
+            display_cluster_dataframe(temp_cluster_df_detail, f'クラスタ番号 {selected_number} 内での検索結果上位 {st.session_state["number_of_cluster_review_papers"]} 件', st.session_state["number_of_cluster_review_papers"])
+        else:
+            display_cluster_dataframe(temp_cluster_df_detail, f'クラスタ番号 {selected_number} 内での検索結果上位 20 件', 20)
+
+        # クラスターのレビュー生成
+        number_of_papers = st.slider( f"クラスタレビューに使用する論文数を選択してください。", min_value=1,
+                value=min(len(cluster_df_detail), 20),  max_value=min(100, len(cluster_df_detail)), step=1)
+
+        if 'number_of_cluster_review_papers' in st.session_state and st.session_state['number_of_cluster_review_papers'] != number_of_papers:
+            st.session_state['number_of_cluster_review_papers'] = number_of_papers
+            st.experimental_rerun()
+        else:
+            st.session_state['number_of_cluster_review_papers'] = number_of_papers
         #クラスタの年情報の追加
         display_cluster_years(temp_cluster_df_detail)
 
-
-        # display_spaces(2)
-        # display_description(f'クラスタ番号{selected_number}の引用ネットワーク', size=5)
-        # with st.expander(label='引用ネットワーク'):
-        #     with st.spinner(f"⏳ クラスタ番号 {selected_number} のグラフを描画中です..."):
-        #         plot_cluster_i(st.session_state['H'], selected_number, st.session_state['partition'])
 
 def generate_cluster_review_component():
     if 'selected_number' in st.session_state and 'cluster_df_detail' in st.session_state and 'query' in st.session_state:
@@ -151,12 +172,6 @@ def generate_cluster_review_component():
         display_description(f'AI クラスタレビュー生成', size=2)
 
         cluster_df_detail = st.session_state['cluster_df_detail']
-
-        st.session_state['number_of_cluster_review_papers'] = st.slider(
-            f"クラスタレビューに使用する論文数を選択してください。",
-                                                                    min_value=1,
-                                                                      value=min(len(cluster_df_detail), 20),
-                                                                      max_value=min(100, len(cluster_df_detail)), step=1)
 
         toggle = display_language_toggle(f"クラスタレビュー生成")
         st.session_state['cluster_review_toggle'] = toggle
@@ -169,7 +184,7 @@ def generate_cluster_review_component():
                 selected_cluster_paper_ids = cluster_df_detail['Node'].values.tolist()[:st.session_state['number_of_cluster_review_papers']]
                 result_list, result_dict = get_papers_from_ids(selected_cluster_paper_ids)
                 selected_papers = set_paper_information(pd.DataFrame(result_dict))
-                cluster_response, reference_links, caption, draft_references = title_review_papers(selected_papers, st.session_state['query'], model = 'gpt-4-32k', language=toggle)
+                cluster_response, reference_links, caption, draft_references = streamlit_title_review_papers(selected_papers, st.session_state['query'], model = 'gpt-4-1106-preview', language=toggle)
 
                 display_description(caption)
                 display_spaces(1)
@@ -182,12 +197,13 @@ def generate_cluster_review_component():
                 draft_references_list = [reference_text for i, reference_text in enumerate(draft_references) if i in reference_indices]
                 st.session_state['cluster_references_list'] = references_list
                 st.session_state['cluster_draft_references_list'] = draft_references_list
+                st.experimental_rerun()
 
 def display_cluster_review_component():
     if 'cluster_review_response' in st.session_state and 'cluster_references_list' in st.session_state  and 'selected_number' in st.session_state:
         display_description(st.session_state['cluster_review_caption'], size=5)
         display_spaces(1)
-        display_description(st.session_state['cluster_review_response'])
+        st.markdown(st.session_state['cluster_review_response'], unsafe_allow_html=True)
 
         if len(st.session_state['cluster_references_list']) > 0:
             display_description('参考文献リスト', size=6)
@@ -213,8 +229,8 @@ def generate_next_cluster_review_component():
                 result_list, result_dict = get_papers_from_ids(selected_cluster_paper_ids)
                 selected_papers = set_paper_information(pd.DataFrame(result_dict))
 
-                response, links, caption, draft_references = title_review_papers(selected_papers,
-                    st.session_state['query'], model='gpt-4-32k', language=st.session_state['cluster_review_toggle'] )
+                response, links, caption, draft_references = streamlit_title_review_papers(selected_papers,
+                    st.session_state['query'], model='gpt-4-1106-preview', language=st.session_state['cluster_review_toggle'] )
                 st.session_state['cluster_review_response'] = response
                 st.session_state['cluster_review_caption'] = f"{button_title}の論文による" + caption
 
@@ -241,9 +257,9 @@ def generate_cluster_draft_component():
         write_summary_button = st.button(f"クラスタ内上位{st.session_state['number_of_cluster_review_papers']}の論文レビューによるエビデンス付与。(時間がかかります)", )
 
         if write_summary_button and len(draft_text) > 0:
-            if 'cluster_review_response' in st.session_state and 'cluster_draft_references_list' in st.session_state:
+            if 'cluster_review_response' in st.session_state and len(st.session_state['cluster_review_response']) > 0 and 'cluster_draft_references_list' in st.session_state:
                 with st.spinner("⏳ AIによるエビデンスの付与中です。 お待ち下さい..."):
-                    summary_response, caption = summery_writer_with_draft(st.session_state['cluster_review_response'], draft_text, st.session_state['cluster_draft_references_list'], model = 'gpt-4-32k', language=toggle, mode=mode_toggle)
+                    summary_response, caption = streamlit_summery_writer_with_draft(st.session_state['cluster_review_response'], draft_text, st.session_state['cluster_draft_references_list'], model = 'gpt-4-1106-preview', language=toggle, mode=mode_toggle)
                     display_description(caption)
                     display_spaces(1)
 
@@ -260,15 +276,14 @@ def generate_cluster_draft_component():
 
 def display_cluster_draft_component():
     if 'summary_response' in st.session_state and 'summary_references_list' in st.session_state:
-        display_list(st.session_state['summary_response'].replace('#', '').split('\n'), size=8)
+        # display_list(st.session_state['summary_response'].replace('#', '').split('\n'), size=8)
+        st.markdown(st.session_state['summary_response'], unsafe_allow_html=True)
 
         if len(st.session_state['summary_references_list']) > 0:
             display_description('参考文献リスト', size=6)
             display_references_list(st.session_state['summary_references_list'])
 
 def cluster_review_papers():
-    construct_cluster_component()
-
     #papers_df がない場合にはやり直す
     if 'papers_df' in st.session_state and len(st.session_state['papers_df']) == 0:
         st.experimental_rerun()
