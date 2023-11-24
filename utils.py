@@ -1243,4 +1243,4 @@ if __name__=='__main__':
     save_values()
     refresh_button = st.button("REFRESH")
     if refresh_button:
-        st.experimental_rerun()
+        st.rerun()

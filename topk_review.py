@@ -19,7 +19,7 @@ def display_searched_papers_component():
             step=1)
         if 'number_of_review_papers' in st.session_state and st.session_state['number_of_review_papers'] != number_of_papers:
             st.session_state['number_of_review_papers'] = number_of_papers
-            st.experimental_rerun()
+            st.rerun()
         else:
             st.session_state['number_of_review_papers'] = number_of_papers
 
@@ -45,7 +45,7 @@ def generate_topk_review_component():
                 draft_references_list = [reference_text for i, reference_text in enumerate(draft_references) if i in reference_indices]
                 st.session_state['topk_references_list'] = references_list
                 st.session_state['topk_draft_references_list'] = draft_references_list
-                st.experimental_rerun()
+                st.rerun()
 
 def display_topk_review_component():
     #レビュー内容の常時表示
@@ -85,7 +85,7 @@ def generate_next_topk_review_component():
                 draft_references_list = [reference_text for i, reference_text in enumerate(draft_references) if i in reference_indices]
                 st.session_state['topk_references_list'] = references_list
                 st.session_state['topk_draft_references_list'] = draft_references_list
-                st.experimental_rerun()
+                st.rerun()
 
 def generate_topk_draft_component():
     if 'papers_df' in st.session_state:

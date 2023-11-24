@@ -159,7 +159,7 @@ def display_each_cluster_component():
 
         if 'number_of_cluster_review_papers' in st.session_state and st.session_state['number_of_cluster_review_papers'] != number_of_papers:
             st.session_state['number_of_cluster_review_papers'] = number_of_papers
-            st.experimental_rerun()
+            st.rerun()
         else:
             st.session_state['number_of_cluster_review_papers'] = number_of_papers
         #クラスタの年情報の追加
@@ -197,7 +197,7 @@ def generate_cluster_review_component():
                 draft_references_list = [reference_text for i, reference_text in enumerate(draft_references) if i in reference_indices]
                 st.session_state['cluster_references_list'] = references_list
                 st.session_state['cluster_draft_references_list'] = draft_references_list
-                st.experimental_rerun()
+                st.rerun()
 
 def display_cluster_review_component():
     if 'cluster_review_response' in st.session_state and 'cluster_references_list' in st.session_state  and 'selected_number' in st.session_state:
@@ -239,7 +239,7 @@ def generate_next_cluster_review_component():
                 draft_references_list = [reference_text for i, reference_text in enumerate(draft_references) if i in reference_indices]
                 st.session_state['cluster_references_list'] = references_list
                 st.session_state['cluster_draft_references_list'] = draft_references_list
-                st.experimental_rerun()
+                st.rerun()
 
 def generate_cluster_draft_component():
     if 'number_of_cluster_review_papers' in st.session_state:
@@ -286,7 +286,7 @@ def display_cluster_draft_component():
 def cluster_review_papers():
     #papers_df がない場合にはやり直す
     if 'papers_df' in st.session_state and len(st.session_state['papers_df']) == 0:
-        st.experimental_rerun()
+        st.rerun()
 
     #cluster_df の構築
     construct_graph_component()

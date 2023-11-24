@@ -9,7 +9,7 @@ def display_query():
     #Queryの管理
     display_title()
 
-    if 'query' in st.session_state.keys():
+    if 'query' in st.session_state:
         query = st.session_state['query']
     else:
         query = ""

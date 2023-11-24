@@ -36,7 +36,7 @@ def research_papers():
         if 'papers' in st.session_state and len(st.session_state['papers']) == 0:
             display_description("Semantic Scholar での検索結果はありませんでした。")
             # reset_session(session_state=st.session_state)
-            st.experimental_rerun()
+            st.rerun()
 
         #csvの保存
         if not os.path.exists(os.path.join(data_folder, f"{safe_filename(encode_to_filename(query))}.csv")) and st.session_state['debug']:
