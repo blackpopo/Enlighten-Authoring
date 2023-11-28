@@ -23,8 +23,8 @@ def research_papers():
             else:
                 display_description(f"{query} を Semantic Scholar で検索中です。\n")
                 #Semantic Scholar による論文の保存
-                #良い論文の100件の取得
-                papers, total = get_papers(query, st.session_state['year'], limit=20, total_limit=total_limit)
+                #良い論文の100件の取得, yearの0は検索用の文字列
+                papers, total = get_papers(query, st.session_state['year'][0], limit=20, total_limit=total_limit)
                 # config への保存
                 st.session_state['papers'] = papers
                 if len(st.session_state['papers']) > 0:

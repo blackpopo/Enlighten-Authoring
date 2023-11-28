@@ -27,7 +27,7 @@ def display_query():
 def app():
     # refresh_button = st.button('Refresh button')
     # if refresh_button:
-    #     st.experimental_rerun()
+    #     st.rerun()
     #
     # debug_mode = st.checkbox("Debug Mode", value=True)
     # if debug_mode:
@@ -39,10 +39,9 @@ def app():
     display_year_input()
     research_papers()
 
-    display_spaces(3)
-    topk_review_papers()
+    # display_spaces(3)
+    # topk_review_papers()
     #コミュニティグラフによるレビュー
-    display_spaces(3)
     cluster_review_papers()
 
 

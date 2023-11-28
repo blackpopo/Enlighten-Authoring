@@ -53,13 +53,14 @@ def display_cluster_dataframe(df, title, topk):
     df['citation count'] = df['citationCount']
     df['published year'] = df['year'].apply(lambda x: str(x).replace('.0', ''))
 
-    if not 'japanese abstract' in df.columns:
-        df = df[['Title', 'Importance', 'abstract', 'published year', 'citation count', 'journal name', 'author names']]
-        df.columns = ['Title', 'Importance', 'Abstract', 'Published Year', 'Citation Count', 'Journal Name', 'Author Names']
-    else:
-        df = df[['Title', 'Importance', 'japanese abstract', 'abstract', 'published year', 'citation count', 'journal name', 'author names']]
-        df.columns = ['Title', 'Importance', 'Japanese Abstract', 'Abstract', 'Published Year', 'Citation Count', 'Journal Name', 'Author Names']
-    st.dataframe(df.head(topk), hide_index=True)
+    df = df[['Title', 'Importance', 'abstract', 'published year', 'citation count', 'journal name', 'author names']]
+    df.columns = ['Title', 'Importance', 'Abstract', 'Published Year', 'Citation Count', 'Journal Name', 'Author Names']
+    # インデックスをリセットして1から始まるように設定
+    df.reset_index(drop=True, inplace=True)
+    df.index = df.index + 1
+    df.index.name = "Order of Papers"
+
+    st.dataframe(df.head(topk))
 
 def display_dataframe_detail(df, title, topk):
     st.write(
@@ -82,30 +83,13 @@ def display_dataframe_detail(df, title, topk):
     df['author names'] = df['authors'].apply(lambda x: [d.get('name') for d in x] if isinstance(x, list) else None)
     df['citation count'] = df['citationCount']
     df['published year'] = df['year'].apply(lambda x: str(x))
-    if not 'japanese_abstract' in df.columns:
-        df = df[['title', 'abstract', 'published year', 'citation count', 'journal name', 'author names']]
-        df.columns =  ['Title',  'Abstract', 'Published Year', 'Citation Count', 'Journal Name', 'Author Names']
-    else:
-        df = df[['title', 'japanese abstract','abstract', 'published year', 'citation count', 'journal name', 'author names']]
-        df.columns =  ['Title', 'Japanese Abstract',  'Abstract', 'Published Year', 'Citation Count', 'Journal Name', 'Author Names']
+    df = df[['title', 'abstract', 'published year', 'citation count', 'journal name', 'author names']]
+    df.columns =  ['Title',  'Abstract', 'Published Year', 'Citation Count', 'Journal Name', 'Author Names']
     st.dataframe(df.head(topk), hide_index=True)
 
 def display_title():
     st.title("Enlighten Authoring")
     st.markdown("<strong>臨床的位置づけ立案支援AI: 専門情報のレビューと文章へのエビデンスの付与を行います</strong>", unsafe_allow_html=True)
-
-
-# def display_list(text_list, size=4):
-#     if not isinstance(text_list, list):
-#         st.write("文字列のリストを入力してください")
-#         return
-#
-#     for text in text_list:
-#         st.write(
-#             f"<h{size} style='text-align: left;'> {text} </h{size}>",
-#             unsafe_allow_html=True,
-#         )
-
 
 def display_description(description_text = 'This is application description.', size=5):
     """Displays the description of the app."""
@@ -193,13 +177,23 @@ def display_cluster_years(df: pd.DataFrame):
         x_ticks_list[0] = start_year
         x_ticks = x_ticks_list  # 5年ごとの年をx_ticksに設定
 
+    # y軸の目盛りを設定
+    max_paper_count = paper_count_by_year.values.max()
+    if max_paper_count >= 100:
+        y_ticks = np.arange(0, max_paper_count + 1, step=10)
+    elif 10 <= max_paper_count < 100:
+        y_ticks = np.arange(0, max_paper_count + 1, step=5)
+    else:
+        y_ticks = np.arange(0, max_paper_count + 1, step=1)
+
+
     # Matplotlib で折れ線グラフ作成
     plt.figure(figsize=(12, 6))
     plt.plot(paper_count_by_year.index, paper_count_by_year.values, color='aqua', marker='o')
     plt.xlabel('出版年')
     plt.ylabel('論文数[本]')
     plt.xticks(x_ticks, rotation=45)
-    plt.yticks(np.arange(0, paper_count_by_year.values.max() + 1, step=1))
+    plt.yticks(y_ticks)
 
     # グラフの枠線を一番下の線以外消す
     plt.gca().spines['top'].set_visible(False)
@@ -221,10 +215,17 @@ def display_year_input():
         start_year = st.selectbox("検索の開始年", range(1880, current_year + 1), 0)
 
     with col2:
-        end_year = st.selectbox("検索の終了年", range(1880, current_year + 1), current_year - 1880)
+        years_options = list(range(1880, current_year + 1)) + ["present"]
+        selected_year = st.selectbox("検索の終了年", years_options, index=current_year - 1880 + 1)
+        end_year = "" if selected_year == "present" else selected_year
+        int_end_year = selected_year if not selected_year == "present" else current_year + 1
 
-    st.session_state['year'] = f"{start_year}-{end_year}"
+    if start_year > int_end_year:
+        st.stop()
 
+    threshold_year = max(start_year, int_end_year - 10)
+
+    st.session_state['year'] = [f"{start_year}-{end_year}", start_year, int_end_year, threshold_year]
 
 def get_session_info():
     # get session info

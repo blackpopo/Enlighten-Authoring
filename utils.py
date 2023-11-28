@@ -22,8 +22,7 @@ from collections import defaultdict
 import numpy as np
 import community as community_louvain # python-louvain packageをインストールする必要があるわ
 import json
-import plotly.graph_objs as go
-
+import itertools
 
 OPENAI_API_KEY = st.secrets['OPENAI_API_KEY']
 DEEPL_API_KEY = st.secrets['DEEPL_API_KEY']
@@ -410,28 +409,6 @@ def title_review_generate_prompt(abstracts, query_text, language):
     else:
         return prompt
 
-
-#論文のレビュー部分
-# def title_review_papers(papers, query_text, model = 'gpt-4-32k', language="English"):
-#     abstracts = []
-#     linked_apas = []
-#     titles = []
-#     prompt = title_review_generate_prompt([], query_text, language)
-#     caption = f"{len(papers)} 件の論文がレビューに使用されました。"
-#     for i, (title, abstract, year, link) in enumerate(zip(papers["title"], papers["abstract"], papers['year'], papers['linked_APA']), 1):
-#         text = f"[{i}] (Published in {year}) {title}\n{abstract}"
-#         abstracts.append(text)
-#         linked_apas.append(f"[{i}] : {link}")
-#         titles.append(f"[{i}] : {title}\n{abstract}")
-#
-#         prompt = title_review_generate_prompt(abstracts, query_text, language)
-#         if not is_valid_tiktoken(model, prompt):
-#             prompt = title_review_generate_prompt(abstracts[:-1], query_text, language)
-#             caption = f"{i - 1} / {len(papers)} 件の論文がレビューに使用されました。"
-#             break
-#     cluster_summary = get_azure_gpt_response(prompt, model)
-#     return cluster_summary, linked_apas, caption, titles
-
 def streamlit_title_review_papers(papers, query_text, model = 'gpt-4-32k', language="English"):
     abstracts = []
     linked_apas = []
@@ -530,28 +507,6 @@ def summary_writer_generate_prompt(references, cluster_summary, draft, language,
     else:
         return prompt
 
-#
-# def summery_writer_with_draft(cluster_summary, draft, references, model = 'gpt-4-32k',language="English", mode="only_add_citation"):
-#     prompt = summary_writer_generate_prompt([], cluster_summary, "", language, mode)
-#     if not is_valid_tiktoken( model, prompt):
-#         return "Cluster summary exceeds the AI characters limit. Please regenerate your cluster summary."
-#
-#     prompt = summary_writer_generate_prompt([], cluster_summary, draft, language, mode)
-#     if not is_valid_tiktoken( model, prompt):
-#         return "Your draft exceeds the AI characters limit. Please shorten the length of your draft."
-#
-#
-#     caption = "All papers were used to generate the review. "
-#     for i in range(len(references)):
-#         prompt = summary_writer_generate_prompt(references[:i+1], cluster_summary, draft, language, mode)
-#         if not is_valid_tiktoken(model, prompt):
-#             prompt = summary_writer_generate_prompt(references[:i], cluster_summary, draft, language, mode)
-#             caption = f"{i -1 } / {len(references)} papers were used to generate the review. "
-#             break
-#
-#     summary = get_azure_gpt_response(prompt, 'gpt-4-32k')
-#     return summary, caption
-
 def streamlit_summery_writer_with_draft(cluster_summary, draft, references, model = 'gpt-4-32k',language="English", mode="only_add_citation"):
     prompt = summary_writer_generate_prompt([], cluster_summary, "", language, mode)
     if not is_valid_tiktoken( model, prompt):
@@ -579,85 +534,6 @@ def streamlit_summery_writer_with_draft(cluster_summary, draft, references, mode
             result.write(summary)
     result.empty()
     return summary, caption
-
-@st.cache_resource
-def override_get_azure_gpt_response( top_pagerank_by_cluster, model):
-    prompt = cluster_one_line_generate_prompt(top_pagerank_by_cluster)
-    json_response =  get_azure_gpt_response_json(prompt, model)
-    return pd.DataFrame(json_response['data'])
-
-def add_key_sentences_to_cluster_df(cluster_df, one_line_dataframe):
-    # cluster_dfに新しい列を追加
-    cluster_df['key_sentence'] = ""
-
-    # one_line_dataframeの各行に対してループ
-    for index, row in one_line_dataframe.iterrows():
-        cluster_id = row['cluster_id']
-        title = row['title']
-
-        # 対応するcluster_dfの行を見つけ、key_sentenceを更新
-        cluster_df.loc[cluster_df.index == cluster_id, 'ClusterKeySentence'] = title
-
-    return cluster_df
-def cluster_one_line_generate_prompt(top_pagerank_by_cluster):
-    references_text = ""
-    for cluster_id, data_frame in top_pagerank_by_cluster:
-        references_text += f"クラスタ番号: {cluster_id}\n"
-        for title in data_frame['Title']:
-            title = title.replace('From:', '').replace('To:', '')
-            references_text += f" - {title}\n"
-        references_text += '\n\n'
-
-    json_format = "{" \
-                  " 'data' : [" \
-                    "" \
-                  "{ 'cluster_id': クラスタ番号を数字で出力, " \
-                    " 'title': 一行にまとめたタイトルを日本語で出力" \
-                  "},..." \
-                  " ]" \
-                  "}"
-
-    japanese_prompt = f""": 論文タイトル\n\n
-                {references_text}
-                \n\n
-                指示: クラスタ番号ごとに提供された論文のタイトルを使って、与えられたクラスタ番号ごとにタスクを実行しなさい。
-                タスク: 各クラスタの論文タイトルをまとめて一行の日本語タイトルを作り、以下のJSON のフォーマットで出力する。
-                
-                JSONフォーマット: \n
-                {json_format}
-                """
-    return japanese_prompt
-
-@st.cache_resource
-def cluster_one_line_explanation(cluster_df, df_centrality, model = 'gpt-4-1106-preview'):
-    filtered_cluster_df = cluster_df[cluster_df['Node'] > 10]
-    cluster_ids = filtered_cluster_df.index.tolist()
-    # 各クラスタIDに対してループ
-    for topk in range(5, 0, -1):
-        top_pagerank_by_cluster = []
-        for cluster_id in cluster_ids:
-            # 特定のクラスタIDに該当する行をフィルタリング
-            cluster_data = df_centrality[df_centrality['Cluster'] == cluster_id]
-
-            # PageRank でソートし、上位5件を取得
-            top_entries = cluster_data.nlargest(topk, 'PageRank')
-
-            # 結果リストに追加
-            top_pagerank_by_cluster.append((cluster_id, top_entries))
-
-        prompt = cluster_one_line_generate_prompt(top_pagerank_by_cluster)
-
-        if is_valid_tiktoken(model, prompt):
-            break
-
-    if not is_valid_tiktoken(model, prompt):
-        return cluster_df
-
-    one_line_dataframe = override_get_azure_gpt_response(top_pagerank_by_cluster, model)
-    # 関数を使用してデータを更新
-    updated_cluster_df = add_key_sentences_to_cluster_df(cluster_df, one_line_dataframe)
-    return updated_cluster_df
-
 
 def japanese_abstract_generate_prompt(papers):
     references_text = ""
@@ -708,53 +584,98 @@ def add_japanese_abstract(papers, model = 'gpt-4-1106-preview', separation = 10)
     print(papers.head())
     return papers
 
-def get_paper_graph(papers_df):
-    # DiGraphの初期化
-    G = nx.DiGraph()
 
-    for k in tqdm.tqdm(range(len(papers_df))):  # 0 ~ len(papers_df)-1
-        # ノードの追加
-        if papers_df.loc[k, 'paperId'] is not None:
-            G.add_node(papers_df.loc[k, 'paperId'], title=f"From:{papers_df.loc[k, 'title']}", year=papers_df.loc[k, 'year'], citationCount=papers_df.loc[k, 'citationCount'])
+def construct_direct_quotations_graph(papers_df):
+    # 直接引用法によるネットワークを作成するためにGraphの初期化
+    G = nx.Graph()
 
+    # papers_df DataFrameをループして処理
+    for k in range(len(papers_df)):
+        paper_id = papers_df.loc[k, 'paperId']
+        paper_year = papers_df.loc[k, 'year']
+        # ノードの追加条件をチェック
+        if pd.notnull(paper_id) and pd.notnull(paper_year):  # pd.notnullを使用してnull値をチェック
+            G.add_node(paper_id, title=f"From:{papers_df.loc[k, 'title']}", citationCount=papers_df.loc[k, 'citationCount'], year=paper_year)
+        else:
+            continue  # paper_id または paper_year が null の場合はノードの追加をスキップ
+
+        # 各参照についての処理
         for reference in papers_df.loc[k, 'references']:
-            if reference['paperId'] is not None:
-                G.add_node(reference['paperId'], title=f"To:{reference['title']}", year=reference['year'], citationCount=reference['citationCount'])
+            ref_id = reference.get('paperId')
+            ref_year = reference.get('year')
+            citation_count = reference.get("citationCount", 0)
+            if pd.notnull(ref_id) and pd.notnull(ref_year) and pd.notnull(citation_count):  # 参照のpaperIdとyearもチェック
+                # 参照がすでにノードとして追加されていない場合にのみ追加
+                if ref_id not in G:
+                    G.add_node(ref_id, title=f"To:{reference['title']}", citationCount=citation_count, year=ref_year)
+                # エッジの追加（重みはu,vの被引用回数の平均）
+                G.add_edge(paper_id, ref_id,
+                           weight=(papers_df.loc[k, 'citationCount'] + citation_count) / 2)
 
-        # エッジの追加
-        for reference in papers_df.loc[k, 'references']:
-            if reference['paperId'] is not None and papers_df.loc[k, 'paperId'] is not None:
-                # XからYへ情報が流れる（YがXを引用する）X->Y
-                # 出次数が多いものが被引用回数が高いもの
-                G.add_edge(reference['paperId'], papers_df.loc[k, 'paperId'])
-    return G
-
-def extract_subgraph(G):
-    # # 有向グラフの出次数が1より大きいノードだけを取得
-    # large_degree = [node for node, out_degree in dict(G.out_degree()).items() if out_degree > 0]
-    #
-    # # サブグラフの作成
-    # H_directed = G.subgraph(large_degree)
-    #
-    # # サブグラフを無向グラフに変換
-    # H_undirected = H_directed.to_undirected()
-    #
-    # # 無向グラフの次数が0より大きいノードだけを取得
-    # nodes_with_large_degree = [node for node, degree in dict(H_undirected.degree()).items() if degree > 0]
-    #
-    # # 新しいサブグラフの作成
-    # H = H_undirected.subgraph(nodes_with_large_degree)
-
+    # 無向グラフにする
     H = G.to_undirected()
-    return H
+    return H, G
+
+def construct_direct_quotation_and_scrivener_combination(papers_df, threshold_year):
+    _, G = construct_direct_quotations_graph(papers_df)
+    # thres_year以降のノードのみを含む辞書を作成
+    neighbors_dict = {node: set(G.neighbors(node)) for node in G.nodes() if G.nodes[node].get('year', 0) >= threshold_year}
+
+    # エッジを追加するためのリストを作成
+    edges_to_add = []
+
+    # フィルタリングされたノードの組み合わせを生成
+    for u, v in itertools.combinations(neighbors_dict.keys(), 2):
+        # 事前計算されたリストを使用して共通の隣接ノードを見つける
+        common_neighbors = neighbors_dict[u] & neighbors_dict[v]
+        common_count = len(common_neighbors)
+
+        # 共通の隣接ノードが1つ以上ある場合にエッジを追加
+        if common_count > 0:
+            u_citation_count = G.nodes[u].get('citationCount', 0)
+            v_citation_count = G.nodes[v].get('citationCount', 0)
+            average_citation_count = (u_citation_count + v_citation_count) / 2
+            edges_to_add.append((u, v, {'weight': average_citation_count}))
+
+    # 一度にすべてのエッジを追加
+    G.add_edges_from(edges_to_add)
+
+    # 無向グラフにする
+    H = G.to_undirected()
+    return H, G
+
+def generate_windows(start_year, end_year, threshold_year ,window_size):
+    """
+    指定された開始年、終了年、ウィンドウサイズに基づいてウィンドウのリストを生成する関数。
+    """
+    windows = []
+
+    # 過去10年(thresholdhold_year)よりも前はひとつのウィンドウにまとめてしまう
+    if start_year < threshold_year:
+        windows.append((start_year, threshold_year - 1))
+    current_start = threshold_year
+
+    # 過去10年間をウィンドウサイズごとにwindowsに追加
+    while current_start <= end_year:
+        current_end = min(current_start + window_size - 1, end_year)
+        windows.append((current_start, current_end))
+        current_start += window_size
+        # 最後のウィンドウが単一年であれば、それをそのまま使用
+        if current_start > end_year:
+            if current_end == end_year:
+                break
+
+    return windows
+
 
 #グラフ全体Hに対してPageRankを計算する
-def get_cluster_papers(H, G, cluster_nodes):
+@st.cache_data
+def get_cluster_papers(_H, _G, cluster_nodes, start_year, end_year, threshold_year):
     # クラスタ0に属するノードだけでサブグラフを作成
-    H_cluster = H.subgraph(cluster_nodes)
+    H_cluster = _H.subgraph(cluster_nodes)
 
     # PageRankの計算. 全体のページランクを使用する．
-    pagerank = nx.pagerank(H, alpha=0.9)
+    pagerank = nx.pagerank(_H, alpha=0.9)
 
     # 次数中心性の計算
     degree_centrality = nx.degree_centrality(H_cluster)
@@ -763,7 +684,7 @@ def get_cluster_papers(H, G, cluster_nodes):
     df_centrality = pd.DataFrame(degree_centrality.items(), columns=['Node', 'DegreeCentrality'])
 
     # タイトルを持つ新しいカラムを作成
-    df_centrality['TitleNode'] = df_centrality['Node'].map(nx.get_node_attributes(G, 'title'))
+    df_centrality['TitleNode'] = df_centrality['Node'].map(nx.get_node_attributes(_G, 'title'))
     df_centrality['Title'] = df_centrality['TitleNode'].str.replace('To:', '').str.replace('From:', '')
 
     # PageRankをデータフレームに追加
@@ -772,7 +693,52 @@ def get_cluster_papers(H, G, cluster_nodes):
     # 次数中心性で降順ソート
     df_centrality = df_centrality.sort_values('PageRank', ascending=False)
 
+    df_centrality = cluster_for_year(_H, df_centrality, start_year, end_year, threshold_year)
+
     return df_centrality
+
+@st.cache_data
+def cluster_for_year(_H, df_centrality, start_year, end_year, threshold_year):
+    windows = generate_windows(start_year, end_year, threshold_year, 2)
+    clustering = []
+
+    for _start_year, _end_year in windows:
+        # サブグラフの抽出
+        subgraph = _H.subgraph([n for n, attr in _H.nodes(data=True) if _start_year <= attr['year'] <= _end_year])
+        #     subgraphs.append(subgraph)
+
+        if len(subgraph) == 0:
+            continue
+
+        # Louvain法によるクラスタリング
+        partition = community_louvain.best_partition(subgraph)
+
+        # ノード数が1のクラスタはひとつにまとめる
+        # 各クラスタのノード数をカウント
+        cluster_counts = defaultdict(int)
+        for node, cluster in partition.items():
+            cluster_counts[cluster] += 1
+
+        # ノード数が1のクラスタを特定し、'residuals'クラスタに割り当てる
+        residuals_cluster = max(cluster_counts.keys()) + 1  # 新しいクラスタ番号
+        for node, cluster in partition.items():
+            if cluster_counts[cluster] == 1:
+                partition[node] = residuals_cluster
+
+        # データフレームにクラスタ情報を追加
+        for node, cluster in partition.items():
+            clustering.append({
+                'Node': node,
+                'Cluster': f"〜{_end_year}-{cluster + 1}"
+            })
+
+    # クラスタリング結果をデータフレームに変換
+    clustering = pd.DataFrame(clustering)
+
+    # df_centralityにCluster列をマージ
+    df_centrality = pd.merge(df_centrality, clustering, on='Node')
+    return df_centrality
+
 
 
 def page_ranking_sort(H):
@@ -811,92 +777,14 @@ def community_clustering(H):
     # クラスタのノード数をカウント
     cluster_counts = {}
     for cluster_id in partition.values():
-        cluster_counts[cluster_id] = cluster_counts.get(cluster_id, 0) + 1
-
+        cluster_counts[cluster_id + 1] = cluster_counts.get(cluster_id, 0) + 1
     print(f'cluster counts {cluster_counts}')
 
-    clustering_result = {key: value for key, value in partition.items()}
+    clustering_result = {node: cluster_id + 1 for node, cluster_id in partition.items()}
+
+    partition = {node: cluster_id + 1 for node, cluster_id in partition.items()}
 
     return cluster_counts, partition, clustering_result
-
-
-def prepare_traces(G, partition):
-
-    # ノードの位置を計算
-    pos = nx.spring_layout(G, seed=42)  # シードの設定
-
-
-    # ノードとエッジの描画
-    edge_x = []
-    edge_y = []
-    for edge in G.edges():
-        x0, y0 = pos[edge[0]]
-        x1, y1 = pos[edge[1]]
-        edge_x.append(x0)
-        edge_x.append(x1)
-        edge_y.append(y0)
-        edge_y.append(y1)
-
-    edge_trace = go.Scatter(x=edge_x, y=edge_y, line=dict(width=0.5, color='#888'), mode='lines', hoverinfo='none')
-
-    node_x = [pos[node][0] for node in G.nodes()]
-    node_y = [pos[node][1] for node in G.nodes()]
-    node_trace = go.Scatter(x=node_x, y=node_y, mode='markers', hoverinfo='none',
-        # marker=dict(
-        # showscale=True,
-        # colorscale='YlGnBu',
-        # color=[partition.get(node, 0) for node in G.nodes()],
-        # size=10,
-        # colorbar=dict(
-        #     thickness=15,
-        #     title='Community',
-        #     xanchor='left',
-        #     titleside='right'
-        # )
-        marker=dict(
-        showscale=False,  # カラーバーを非表示
-        colorscale='YlGnBu',
-        color=[partition.get(node, 0) for node in G.nodes()],
-        size=10)
-    )
-
-    return [edge_trace, node_trace]
-
-def plot_subgraph_of_partition(H, partition):
-    fig = go.Figure(data=prepare_traces(H, partition))
-
-    # 図のサイズを10 x 10インチに設定
-    fig.update_layout(width=10*72, height=10*72)  # 72 pixels per inch
-
-    st.plotly_chart(fig)
-
-
-def plot_cluster_i(H, cluster_id, partition):
-    # クラスタ0番に属するノードを取得
-    cluster_id_nodes = [node for node, cid in partition.items() if cid == cluster_id]
-    if len(cluster_id_nodes) < 1:
-        st.write("No nodes found for the given cluster ID.")
-        return False
-    # サブグラフの作成
-    H_cluster_id = H.subgraph(cluster_id_nodes)
-
-    # 描画の準備
-    edge_trace_cluster_id, node_trace_cluster_id = prepare_traces(H_cluster_id, partition)  # 描画のための関数
-
-    # 描画
-    fig_cluster_id = go.Figure(data=[edge_trace_cluster_id, node_trace_cluster_id])
-    fig_cluster_id.update_layout(
-        width=10 * 72,
-        height=10 * 72,
-        # xaxis_title="X",  # X軸のラベルをここに設定
-        # yaxis_title="Y",   # Y軸のラベルをここに設定
-        margin = dict(l=0, r=0, b=0, t=0),  # 固定のマージン
-        xaxis = dict(showticklabels=False),  # x軸の数字を非表示
-        yaxis = dict(showticklabels=False)  # y軸の数字を非表示
-    )
-
-    st.plotly_chart(fig_cluster_id)
-    return True
 
 
 def extract_reference_indices(response):
@@ -966,7 +854,7 @@ def bibtex_to_apa(bibtex_entry):
             if " " in auth:  # Full name
                 parts = auth.split(" ")
                 last = parts[-1]
-                initials = ". ".join([name[0] for name in parts[:-1]])
+                initials = ". ".join([name[0] for name in parts[:-1] if len(name) > 0])
                 formatted_authors.append(f"{last}, {initials}.")
             else:  # Initials
                 formatted_authors.append(auth)
@@ -1080,23 +968,48 @@ def bernstein_poly(i, n, t):
     # ベルンシュタイン多項式を計算
     return comb(n, i) * (t ** (n - i)) * (1 - t) ** i
 
-def process_display_cluster():
-    display_cluster = st.session_state['cluster_df'].copy()
+def process_display_cluster(cluster_df):
+    display_cluster = cluster_df.copy()
     display_cluster['Year'] = display_cluster['Year'].apply(lambda x: int(x.split('.')[0]))
     return display_cluster
 
+
 @st.cache_data
-def process_communities(display_cluster):
+def create_quotient_graph(_H, _partition):
     communities = defaultdict(list)
-    for node, comm_id in st.session_state['partition'].items():
+    for node, comm_id in _partition.items():
         communities[comm_id].append(node)
 
-    edge_data_fixed = partial(edge_data, G=st.session_state['G'])
-    block_model_graph = nx.quotient_graph(st.session_state['H'], communities, relabel=True, edge_data=edge_data_fixed)
 
+    # 新しいグラフ B を作成
+    B = nx.Graph()
+
+    # communities の各コミュニティをノードとして追加
+    for comm_id in communities.keys():
+        B.add_node(comm_id)
+
+    # コミュニティ間のエッジを追加
+    for comm_id, nodes in communities.items():
+        # 当該コミュニティ内のノードについてループ
+        for node in nodes:
+            # ノードの隣接ノードについてループ
+            for neighbor in _H.neighbors(node):
+                neighbor_comm_id = _partition[neighbor]
+                # 異なるコミュニティに属する場合にのみ
+                if comm_id != neighbor_comm_id:
+                    # 既にエッジが追加されているか確認
+                    if B.has_edge(comm_id, neighbor_comm_id):
+                        # エッジが存在する場合は重みを増やす
+                        B[comm_id][neighbor_comm_id]['weight'] += 1
+                    else:
+                        # エッジが存在しない場合は追加し、重みを1に設定
+                        B.add_edge(comm_id, neighbor_comm_id, weight=1)
+    return B
+
+@st.cache_data
+def process_communities(display_cluster, _H, _partition):
+    block_model_graph = create_quotient_graph(_H, _partition)
     sorted_communities_by_year = display_cluster.sort_values('Year').index.tolist()
-
-
     y_positions = randomize_y_position(-1, 1, set(), len(sorted_communities_by_year))
     pos = {node: (index, y) for index, (node, y) in enumerate(zip(sorted_communities_by_year, y_positions))}
     pos = {node: pos[node] for node in block_model_graph.nodes() if node in pos}
@@ -1112,14 +1025,6 @@ def process_edges(_block_model_graph, pos):
     edge_traces = []  # エッジのための複数のtraceを保持するリストを作成
 
     for (edge, width) in zip(_block_model_graph.edges(), widths):
-        # x0, y0 = pos[edge[0]]
-        # x1, y1 = pos[edge[1]]
-        # エッジごとにtraceを作成し、それぞれの太さを設定
-        #     edge_trace = go.Scatter(
-        #         x=[x0, x1, None], y=[y0, y1, None],
-        #         line=dict(width=width, color='#888', opacity=0.5),  # widthをリストから取得した値に設定
-        #         hoverinfo='none',
-        #         mode='lines')
         edge_trace = edge_to_curved_trace(edge, pos, width, curvature=0.4)
         edge_traces.append(edge_trace)  # 新しいtraceをリストに追加
 
@@ -1139,6 +1044,8 @@ def process_sizes(_block_model_graph, display_cluster):
              if max_citations > min_citations else min_size for citationCount in display_cluster.loc[block_nodes, 'Node']]
 
     return sizes, block_nodes
+
+@st.cache_data
 def process_nodes(_block_model_graph, pos, display_cluster):
     # ノードの情報を抽出
     node_x = []
@@ -1215,14 +1122,15 @@ def create_plot(sizes, block_nodes, node_x, node_y, node_text,  edge_traces):
     # Streamlitでのプロットの表示
     st.plotly_chart(fig)
 
-def plot_research_front():
+def plot_research_front(cluster_df, H, partition):
     # 元の関数の実行部分
-    display_cluster = process_display_cluster()
-    block_model_graph,  pos = process_communities(display_cluster)
+    display_cluster = process_display_cluster(cluster_df)
+    block_model_graph,  pos = process_communities(display_cluster, H, partition)
     edge_traces, weights = process_edges(block_model_graph, pos)
     sizes, block_nodes  = process_sizes(block_model_graph, display_cluster)
     node_x, node_y, node_text = process_nodes(block_model_graph, pos, display_cluster)
     create_plot(sizes, block_nodes, node_x, node_y, node_text,  edge_traces)
+
 
 
 if __name__=='__main__':
