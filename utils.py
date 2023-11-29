@@ -231,7 +231,7 @@ def _get_papers_from_ids(paper_ids, fields):
     return None
 
 
-def get_papers_from_ids(paper_ids, offset=0, limit=100):
+def get_papers_from_ids(paper_ids, offset=0, limit=20):
     total_results = []
     total_dict = {}
     fields = "paperId,title,abstract,year,authors,journal,citationCount,citationStyles,referenceCount,references,references.title,references.abstract,references.year,references.authors,references.citationCount,references.referenceCount,references.citationStyles,references.journal"
@@ -669,7 +669,7 @@ def generate_windows(start_year, end_year, threshold_year ,window_size):
 
 
 #グラフ全体Hに対してPageRankを計算する
-@st.cache_data
+@st.cache_resource
 def get_cluster_papers(_H, _G, cluster_nodes, start_year, end_year, threshold_year):
     # クラスタ0に属するノードだけでサブグラフを作成
     H_cluster = _H.subgraph(cluster_nodes)
@@ -697,7 +697,7 @@ def get_cluster_papers(_H, _G, cluster_nodes, start_year, end_year, threshold_ye
 
     return df_centrality
 
-@st.cache_data
+@st.cache_resource
 def cluster_for_year(_H, df_centrality, start_year, end_year, threshold_year):
     windows = generate_windows(start_year, end_year, threshold_year, 2)
     clustering = []
@@ -932,10 +932,11 @@ def edge_data(B, C, G):
     return edge_data_with_graph(B, C)
 
 
-def edge_to_curved_trace(edge, pos, width, curvature=0.1):
+# @st.cache_resource
+def edge_to_curved_trace(_edge, _pos, _width, curvature=0.1):
     # エッジの開始と終了の点を取得します
-    x0, y0 = pos[edge[0]]
-    x1, y1 = pos[edge[1]]
+    x0, y0 = _pos[_edge[0]]
+    x1, y1 = _pos[_edge[1]]
 
     # 曲線を滑らかにするために制御点を計算します
     # ここでは、エッジの中間点を制御点として単純化しています
@@ -948,7 +949,7 @@ def edge_to_curved_trace(edge, pos, width, curvature=0.1):
     edge_trace = go.Scatter(
         x=bezier_points[:, 0],
         y=bezier_points[:, 1],
-        line=dict(width=width, color='rgba(136, 136, 136, 0.6)'),
+        line=dict(width=_width, color='rgba(136, 136, 136, 0.6)'),
         hoverinfo='none',
         mode='lines'
     )
@@ -974,7 +975,7 @@ def process_display_cluster(cluster_df):
     return display_cluster
 
 
-@st.cache_data
+# @st.cache_resource
 def create_quotient_graph(_H, _partition):
     communities = defaultdict(list)
     for node, comm_id in _partition.items():
@@ -1006,7 +1007,7 @@ def create_quotient_graph(_H, _partition):
                         B.add_edge(comm_id, neighbor_comm_id, weight=1)
     return B
 
-@st.cache_data
+# @st.cache_resource
 def process_communities(display_cluster, _H, _partition):
     block_model_graph = create_quotient_graph(_H, _partition)
     sorted_communities_by_year = display_cluster.sort_values('Year').index.tolist()
@@ -1016,7 +1017,7 @@ def process_communities(display_cluster, _H, _partition):
 
     return block_model_graph,  pos
 
-@st.cache_resource
+# @st.cache_resource
 def process_edges(_block_model_graph, pos):
     weights = nx.get_edge_attributes(_block_model_graph, 'weight').values()
     max_weight = max(weights) if weights else 1
@@ -1030,7 +1031,7 @@ def process_edges(_block_model_graph, pos):
 
     return edge_traces, weights
 
-@st.cache_data
+# @st.cache_resource
 def process_sizes(_block_model_graph, display_cluster):
     min_citations = display_cluster['Node'].min()
     max_citations = display_cluster['Node'].max()
@@ -1045,7 +1046,7 @@ def process_sizes(_block_model_graph, display_cluster):
 
     return sizes, block_nodes
 
-@st.cache_data
+# @st.cache_resource
 def process_nodes(_block_model_graph, pos, display_cluster):
     # ノードの情報を抽出
     node_x = []
