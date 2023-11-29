@@ -95,7 +95,7 @@ def generate_topk_draft_component():
         if not 'topk_draft_text' in st.session_state:
             draft_text = st.text_area(label='review draft input filed.', placeholder='Past your draft of review here.', label_visibility='hidden', height=300)
         else:
-            draft_text = st.text_area(label='review draft input filed.', value = st.session_state['topk_draft_text'],placeholder='Past your draft of review here.', label_visibility='hidden', height=300)
+            draft_text = st.text_area(label='review draft input filed.', value = st.session_state['topk_draft_text'],placeholder='Past your draft of review here.', label_visibility='collapsed', height=300)
         st.session_state['topk_draft_text'] = draft_text
 
         toggle = display_language_toggle(f"レビューによるエビデンス付与")

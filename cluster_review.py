@@ -282,7 +282,7 @@ def generate_cluster_draft_component():
         if not 'cluster_review_draft_text' in st.session_state:
             draft_text = st.text_area(label='cluster review draft input filed.', placeholder='Past your draft of review here.', label_visibility='hidden', height=300)
         else:
-            draft_text = st.text_area(label='clsuter review draft input filed.', value = st.session_state['cluster_review_draft_text'],placeholder='Past your draft of review here.', label_visibility='hidden', height=300)
+            draft_text = st.text_area(label='clsuter review draft input filed.', value = st.session_state['cluster_review_draft_text'],placeholder='Past your draft of review here.', label_visibility='collapsed', height=300)
         st.session_state['cluster_review_draft_text'] = draft_text
 
         toggle = display_language_toggle(f"クラスタレビューによるエビデンス付与")
