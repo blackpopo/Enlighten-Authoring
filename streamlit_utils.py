@@ -212,7 +212,7 @@ def display_year_input():
 
     # 開始年と終了年を横並びに表示
     with col1:
-        start_year = st.selectbox("検索の開始年", range(1880, current_year + 1), 0)
+        start_year = st.selectbox("検索の開始年", range(1880, current_year + 1), 2010 - 1880)
 
     with col2:
         years_options = list(range(1880, current_year + 1)) + ["present"]

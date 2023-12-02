@@ -58,3 +58,6 @@ def research_papers():
         else:
             display_description(f"データベースに保存されていた検索結果の読み込みが完了しました。")
             display_description(f"検索履歴から {len(st.session_state['papers_df'])} 件の論文を取得しました。\n参考文献を含めて {len(st.session_state['all_papers_df'])} 件の論文を取得しました。")
+
+    else:
+        st.write("検索キーワードを入力してください。")

@@ -1,9 +1,4 @@
 import stat
-import statistics
-
-import streamlit
-import streamlit.runtime.session_manager
-import streamlit.runtime.state
 
 from streamlit_utils import *
 from utils import *
@@ -29,82 +24,88 @@ def construct_graph_component():
             st.session_state.pop('H')
             #グラフの構築に失敗した場合はここで停止する
             st.stop()
-def add_all_row(cluster_df):
-    # 既存の cluster_df DataFrameを使用して計算を行います。
+            
+# @st.cache_data
+def add_all_row(_cluster_df):
+    # 既存の _cluster_df DataFrameを使用して計算を行います。
     # 各列の適切な値を計算
-    total_node = cluster_df['Node'].sum()
-    total_recent5years_count = cluster_df['Recent5YearsCount'].sum()
-    mean_degree_centrality = cluster_df['DegreeCentrality'].mean()
-    mean_page_rank = cluster_df['PageRank'].mean()
-    mean_year = cluster_df['Year'].mean()
-    citationCount = cluster_df['CitationCount'].sum()
+    total_node = _cluster_df['Node'].sum()
+    total_recent5years_count = _cluster_df['Recent5YearsCount'].sum()
+    mean_degree_centrality = _cluster_df['DegreeCentrality'].mean()
+    mean_page_rank = _cluster_df['PageRank'].mean()
+    mean_year = _cluster_df['Year'].mean()
+    citationCount = _cluster_df['CitationCount'].sum()
 
-    # 0番目の行を作成し、適切な値を設定
     summary_row = pd.DataFrame({
         'Node': [total_node],
         'DegreeCentrality': [mean_degree_centrality],
         'PageRank': [mean_page_rank],
-        'CitationCount': [citationCount],  # CitationCountは適切な集計方法が指定されていないため、空文字を設定
+        'CitationCount': [citationCount],
         'Year': [mean_year],
         'Recent5YearsCount': [total_recent5years_count],
         'ClusterKeywords': ["All papers"]
-    }, index=[0])
+    }).set_index(pd.Index(['all papers'], name='Cluster'))
+
+    _cluster_df = _cluster_df.iloc[::-1]
 
     # 0番目の行をDataFrameの先頭に追加
-    cluster_df = pd.concat([summary_row, cluster_df], ignore_index=True)
-    return cluster_df
+    _cluster_df = pd.concat([summary_row, _cluster_df])
+    return _cluster_df
 
+def setup_cluster_df(df_centrality):
+    cluster_keywords = calc_tf_idf(df_centrality)
+    cluster_df = df_centrality.groupby('Cluster').agg({
+        'Node': 'count',
+        'DegreeCentrality': 'mean',
+        'PageRank': 'mean',
+        'CitationCount': 'median',
+        'Year': 'mean'
+    })
+    # 直近の年を特定
+    # latest_year = df_centrality['Year'].max()
+    latest_year = datetime.datetime.now().year
+    # 直近5年間のデータを取得
+    last_5_years = df_centrality[df_centrality['Year'] > latest_year - 5]
+    # Clusterごとの件数を計算
+    recent_counts = last_5_years.groupby('Cluster').size()
+    # この件数をgbにマージ
+    cluster_df['Recent5YearsCount'] = cluster_df.index.map(recent_counts)
+    cluster_df['Recent5YearsCount'] = cluster_df['Recent5YearsCount'].fillna(0).astype(int)
+    cluster_df["ClusterKeywords"] = cluster_df.index.map(lambda x: ', '.join(cluster_keywords[x]))
+    # index 0 の追加
+    cluster_df = add_all_row(cluster_df)
+    cluster_df['Year'] = cluster_df['Year'].apply(lambda x: str(round(x, 2)))
+    cluster_df['CitationCount'] = cluster_df['CitationCount'].apply(lambda x: str(round(x, 2)))
+    return cluster_df, cluster_keywords
+
+# @st.cache_data
 def construct_cluster_component():
-    if 'H' in st.session_state:
+    if 'H' in st.session_state and 'cluster_df' not in st.session_state:
         with st.spinner(f"⏳ 論文のクラスタリング中です..."):
-            cluster_counts, partition, clustering_result = community_clustering(st.session_state['H'])
+            # cluster_counts, partition, clustering_result = community_clustering(st.session_state['H'])
             #ページランクによる全体のソートアルゴリズム
-            df_centrality = page_ranking_sort(st.session_state['H'])
+            df_centrality = page_ranking_sort(st.session_state['H'], st.session_state['year'][1], st.session_state['year'][2], st.session_state['year'][3])
             # すでに作成されている中心性のデータフレーム（df_centrality）に結合
-            df_centrality['Cluster'] = df_centrality['Node'].map(clustering_result)
+            # df_centrality['Cluster'] = df_centrality['Node'].map(clustering_result)
             #クラスターごとの keyword を作成
-            cluster_keywords = calc_tf_idf(df_centrality)
+            st.session_state['partition'] = df_centrality.set_index('Node')['Cluster'].to_dict()
+            cluster_id_paper_ids = df_centrality.groupby('Cluster')['Node'].apply(list).to_dict()
 
-            cluster_df = df_centrality.groupby('Cluster').agg({
-                    'Node': 'count',
-                    'DegreeCentrality': 'mean',
-                    'PageRank': 'mean',
-                    'CitationCount': 'median',
-                    'Year': 'mean'
-                })
-            # 直近の年を特定
-            # latest_year = df_centrality['Year'].max()
-            latest_year = datetime.datetime.now().year
-            # 直近5年間のデータを取得
-            last_5_years = df_centrality[df_centrality['Year'] > latest_year - 5]
-            # Clusterごとの件数を計算
-            recent_counts = last_5_years.groupby('Cluster').size()
-            # この件数をgbにマージ
-            cluster_df['Recent5YearsCount'] = cluster_df.index.map(recent_counts)
-            cluster_df['Recent5YearsCount'] = cluster_df['Recent5YearsCount'].fillna(0).astype(int)
-            cluster_df["ClusterKeywords"] = cluster_df.index.map(lambda x: ', '.join(cluster_keywords[x]))
-            #index 0 の追加
-            cluster_df = add_all_row(cluster_df)
-            cluster_df['Year'] = cluster_df['Year'].apply(lambda x: str(round(x, 2)))
-            cluster_df['CitationCount'] = cluster_df['CitationCount'].apply(lambda x: str(round(x, 2)))
+            cluster_df, cluster_keywords = setup_cluster_df(df_centrality)
 
             st.session_state['df_centrality'] = df_centrality
             st.session_state['cluster_keywords'] = cluster_keywords
             st.session_state['cluster_df'] = cluster_df
-            st.session_state['partition'] = partition
-
-
-            #Cluster ID から Paper ID のリストを取得するリスト
-            cluster_id_paper_ids = defaultdict(list)
-            for key, value in partition.items():
-                cluster_id_paper_ids[value].append(key)
-                cluster_id_paper_ids[0].append(key) #0番目のkeyはすべてのクラスタ
+            st.session_state['cluster_id_to_paper_ids'] = cluster_id_paper_ids
+            cluster_id_paper_ids["all papers"] = []
+            for ids in cluster_id_paper_ids.values():
+                cluster_id_paper_ids["all papers"].extend(ids)
             st.session_state['cluster_id_to_paper_ids'] = cluster_id_paper_ids
 
 def display_cluster_component():
     if 'cluster_df' in st.session_state.keys():
         display_clusters = st.session_state['cluster_df'][st.session_state['cluster_df']['Node'] > 10]
-        display_clusters = display_clusters.sort_values('Node', ascending=False)
+        # display_clusters = display_clusters.sort_values('Node', ascending=False)
         cluster_candidates = display_clusters.index.tolist()
         #あとで使用する情報の保存
         st.session_state['cluster_candidates'] = cluster_candidates
@@ -127,13 +128,13 @@ def display_cluster_component():
         display_clusters.index.name = "クラスタ番号"
         display_clusters.rename(columns= rename_columns, inplace=True)
 
-
         with st.spinner("⏳ クラスターの時間的な発展を描画中です。お待ち下さい。"):
-            plot_research_front(st.session_state['cluster_df'], st.session_state['H'], st.session_state['partition'])
+            plot_research_front(st.session_state['df_centrality'], st.session_state['H'],
+                                st.session_state['cluster_df'], st.session_state['cluster_id_to_paper_ids'],
+                                st.session_state['partition'])
 
-
-        display_spaces(2)
-        display_dataframe(display_clusters, f'クラスタに含まれる文献数とキーワード', len(display_clusters), list(rename_columns.values()))
+        # display_spaces(2)
+        # display_dataframe(display_clusters, f'クラスタに含まれる文献数とキーワード', len(display_clusters), list(rename_columns.values()))
 
 
 def display_each_cluster_component():
@@ -159,9 +160,7 @@ def display_each_cluster_component():
 
 
         #選択したクラスターで考える
-        cluster_df_detail = get_cluster_papers(st.session_state['G'], st.session_state['H'],
-                                               st.session_state['cluster_id_to_paper_ids'][selected_number],
-                                               st.session_state['year'][1], st.session_state['year'][2], st.session_state['year'][3])
+        cluster_df_detail = get_cluster_papers(st.session_state['df_centrality'],  st.session_state['cluster_id_to_paper_ids'][selected_number])
         st.session_state['cluster_df_detail'] = cluster_df_detail
 
         #ここで，all_papers から引っ張ってきた情報を表示させる．
@@ -171,9 +170,6 @@ def display_each_cluster_component():
         #     cluster_df_detail.set_index('Node')['PageRank'])
         temp_cluster_df_detail =  matched_papers_df.rename(columns={'PageRank': "Importance"})
         temp_cluster_df_detail.index.name = 'Paper ID'
-
-
-
 
         if st.session_state['cluster_sort'] == "重要度":
             temp_cluster_df_detail = temp_cluster_df_detail.sort_values('Importance', ascending=False)

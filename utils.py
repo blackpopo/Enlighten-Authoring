@@ -140,7 +140,7 @@ def _get_papers(query, year, offset, limit, fields):
 def get_papers(query_text, year, offset = 0, limit = 100, total_limit = 1000):
   papers = []
   # fields = "paperId,title,abstract,year,authors,journal,citationCount,citationStyles,referenceCount,references,references.title,references.abstract,references.year,references.authors,references.citationCount,references.referenceCount,references.citationStyles"
-  fields = "paperId,title,abstract,year,authors,journal,citationCount,citationStyles,referenceCount,references,references.title,references.abstract,references.year,references.authors,references.citationCount,references.referenceCount,references.citationStyles,references.journal"
+  fields = "paperId,title,abstract,year,authors,journal,citationCount,citationStyles,referenceCount,citations,references,references.title,references.abstract,references.year,references.authors,references.citationCount,references.referenceCount,references.citationStyles,references.journal"
 
   # 最初の結果セットを取得
   # _get_papersはエラーが発生した場合 None を返す
@@ -234,7 +234,7 @@ def _get_papers_from_ids(paper_ids, fields):
 def get_papers_from_ids(paper_ids, offset=0, limit=20):
     total_results = []
     total_dict = {}
-    fields = "paperId,title,abstract,year,authors,journal,citationCount,citationStyles,referenceCount,references,references.title,references.abstract,references.year,references.authors,references.citationCount,references.referenceCount,references.citationStyles,references.journal"
+    fields = "paperId,title,abstract,year,authors,journal,citationCount,citationStyles,referenceCount,citations,references,references.title,references.abstract,references.year,references.authors,references.citationCount,references.referenceCount,references.citationStyles,references.journal"
 
     # 修正した進捗表示
     total_len = len(paper_ids)
@@ -581,7 +581,6 @@ def add_japanese_abstract(papers, model = 'gpt-4-1106-preview', separation = 10)
     papers = pd.merge(papers, abstract_dataframe, left_on='index', right_on='paper_index', how='left')
     papers = papers.set_index('index')
     papers.drop(columns=['paper_index'], inplace=True)
-    print(papers.head())
     return papers
 
 
@@ -595,23 +594,38 @@ def construct_direct_quotations_graph(papers_df):
         paper_year = papers_df.loc[k, 'year']
         # ノードの追加条件をチェック
         if pd.notnull(paper_id) and pd.notnull(paper_year):  # pd.notnullを使用してnull値をチェック
-            G.add_node(paper_id, title=f"From:{papers_df.loc[k, 'title']}", citationCount=papers_df.loc[k, 'citationCount'], year=paper_year)
+            G.add_node(paper_id, title=f"From:{papers_df.loc[k, 'title']}", citationCount=papers_df.loc[k, 'citationCount'],
+                       year=paper_year)
         else:
             continue  # paper_id または paper_year が null の場合はノードの追加をスキップ
 
-        # 各参照についての処理
+        # paperが引用している文献についての処理
         for reference in papers_df.loc[k, 'references']:
             ref_id = reference.get('paperId')
             ref_year = reference.get('year')
-            citation_count = reference.get("citationCount", 0)
-            if pd.notnull(ref_id) and pd.notnull(ref_year) and pd.notnull(citation_count):  # 参照のpaperIdとyearもチェック
+            ref_citeCount = reference.get('citationCount', 0)
+            if pd.notnull(ref_id) and pd.notnull(ref_year) and pd.notnull(ref_citeCount):  # 参照のpaperIdとyearもチェック
                 # 参照がすでにノードとして追加されていない場合にのみ追加
                 if ref_id not in G:
-                    G.add_node(ref_id, title=f"To:{reference['title']}", citationCount=citation_count, year=ref_year)
+                    G.add_node(ref_id, title=f"To:{reference['title']}",
+                               citationCount=reference.get('citationCount', 0), year=ref_year)
                 # エッジの追加（重みはu,vの被引用回数の平均）
                 G.add_edge(paper_id, ref_id,
-                           weight=(papers_df.loc[k, 'citationCount'] + citation_count) / 2)
+                           weight=(papers_df.loc[k, 'citationCount'] + ref_citeCount) / 2)
 
+        # # paperを引用している文献についての処理
+        # for reference in papers_df.loc[k, 'citations']:
+        #     ref_id = reference.get('paperId')
+        #     ref_year = reference.get('year')
+        #     ref_citeCount = reference.get('citationCount', 0)
+        #     if pd.notnull(ref_id) and pd.notnull(ref_year) and pd.notnull(ref_citeCount):  # 参照のpaperIdとyearもチェック
+        #         # 参照がすでにノードとして追加されていない場合にのみ追加
+        #         if ref_id not in G:
+        #             G.add_node(ref_id, title=f"To:{reference['title']}",
+        #                        citationCount=reference.get('citationCount', 0), year=ref_year)
+        #         # エッジの追加（重みはu,vの被引用回数の平均）
+        #         G.add_edge(paper_id, ref_id,
+        #                    weight=(papers_df.loc[k, 'citationCount'] + ref_citeCount) / 2)
     # 無向グラフにする
     H = G.to_undirected()
     return H, G
@@ -639,9 +653,12 @@ def construct_direct_quotation_and_scrivener_combination(papers_df, threshold_ye
 
     # 一度にすべてのエッジを追加
     G.add_edges_from(edges_to_add)
-
-    # 無向グラフにする
-    H = G.to_undirected()
+    # グラフの次数が1より大きいノードだけを取得（1回以上引用されている）
+    large_degree = [node for node, degree in dict(G.degree()).items() if degree > 1]
+    # サブグラフの作成
+    H = G.subgraph(large_degree)
+    # # 無向グラフにする
+    # H = G.to_undirected()
     return H, G
 
 def generate_windows(start_year, end_year, threshold_year ,window_size):
@@ -669,37 +686,43 @@ def generate_windows(start_year, end_year, threshold_year ,window_size):
 
 
 #グラフ全体Hに対してPageRankを計算する
-@st.cache_resource
-def get_cluster_papers(_H, _G, cluster_nodes, start_year, end_year, threshold_year):
-    # クラスタ0に属するノードだけでサブグラフを作成
-    H_cluster = _H.subgraph(cluster_nodes)
+#クラスタごとにPageRank でまとまりを計算する．
+# @st.cache_data
+# def get_cluster_papers(_H, _G, cluster_nodes):
+#     # クラスタ0に属するノードだけでサブグラフを作成
+#     H_cluster = _H.subgraph(cluster_nodes)
+#
+#     # PageRankの計算. 全体のページランクを使用する．
+#     pagerank = nx.pagerank(_H, alpha=0.9)
+#
+#     # 次数中心性の計算
+#     degree_centrality = nx.degree_centrality(H_cluster)
+#
+#     # データフレームに変換
+#     df_centrality = pd.DataFrame(degree_centrality.items(), columns=['Node', 'DegreeCentrality'])
+#
+#     # タイトルを持つ新しいカラムを作成
+#     df_centrality['TitleNode'] = df_centrality['Node'].map(nx.get_node_attributes(_G, 'title'))
+#     df_centrality['Title'] = df_centrality['TitleNode'].str.replace('To:', '').str.replace('From:', '')
+#
+#     # PageRankをデータフレームに追加
+#     df_centrality['PageRank'] = df_centrality['Node'].map(pagerank)
+#
+#     # 次数中心性で降順ソート
+#     df_centrality = df_centrality.sort_values('PageRank', ascending=False)
+#
+#
+#     return df_centrality
 
-    # PageRankの計算. 全体のページランクを使用する．
-    pagerank = nx.pagerank(_H, alpha=0.9)
+@st.cache_data
+def get_cluster_papers(df_centrality, cluster_nodes):
+    df_centrality = df_centrality.copy()
+    df_centrality_filtered = df_centrality[df_centrality['Node'].isin(cluster_nodes)]
+    return df_centrality_filtered
 
-    # 次数中心性の計算
-    degree_centrality = nx.degree_centrality(H_cluster)
-
-    # データフレームに変換
-    df_centrality = pd.DataFrame(degree_centrality.items(), columns=['Node', 'DegreeCentrality'])
-
-    # タイトルを持つ新しいカラムを作成
-    df_centrality['TitleNode'] = df_centrality['Node'].map(nx.get_node_attributes(_G, 'title'))
-    df_centrality['Title'] = df_centrality['TitleNode'].str.replace('To:', '').str.replace('From:', '')
-
-    # PageRankをデータフレームに追加
-    df_centrality['PageRank'] = df_centrality['Node'].map(pagerank)
-
-    # 次数中心性で降順ソート
-    df_centrality = df_centrality.sort_values('PageRank', ascending=False)
-
-    df_centrality = cluster_for_year(_H, df_centrality, start_year, end_year, threshold_year)
-
-    return df_centrality
-
-@st.cache_resource
+# @st.cache_resource
 def cluster_for_year(_H, df_centrality, start_year, end_year, threshold_year):
-    windows = generate_windows(start_year, end_year, threshold_year, 2)
+    windows = generate_windows(min(start_year, df_centrality['Year'].min()), max(end_year, df_centrality['Year'].max()), threshold_year, 2)
     clustering = []
 
     for _start_year, _end_year in windows:
@@ -711,7 +734,7 @@ def cluster_for_year(_H, df_centrality, start_year, end_year, threshold_year):
             continue
 
         # Louvain法によるクラスタリング
-        partition = community_louvain.best_partition(subgraph)
+        partition = community_louvain.best_partition(subgraph, random_state=42)
 
         # ノード数が1のクラスタはひとつにまとめる
         # 各クラスタのノード数をカウント
@@ -734,14 +757,13 @@ def cluster_for_year(_H, df_centrality, start_year, end_year, threshold_year):
 
     # クラスタリング結果をデータフレームに変換
     clustering = pd.DataFrame(clustering)
-
     # df_centralityにCluster列をマージ
     df_centrality = pd.merge(df_centrality, clustering, on='Node')
     return df_centrality
 
 
-
-def page_ranking_sort(H):
+#全体の df_centralityの計算
+def page_ranking_sort(H, start_year, end_year, threshold_year):
     # PageRankの計算
     pagerank = nx.pagerank(H, alpha=0.9)
 
@@ -766,25 +788,10 @@ def page_ranking_sort(H):
     # PageRankで降順ソート
     df_centrality = df_centrality.sort_values(['PageRank'], ascending=False)
 
+    df_centrality = cluster_for_year(H, df_centrality, start_year, end_year, threshold_year)
+
     return df_centrality
 
-
-#クラスタリングアルゴリズム
-def community_clustering(H):
-    # 最適なモジュラリティを持つコミュニティを見つける
-    partition = community_louvain.best_partition(H, random_state=42)
-
-    # クラスタのノード数をカウント
-    cluster_counts = {}
-    for cluster_id in partition.values():
-        cluster_counts[cluster_id + 1] = cluster_counts.get(cluster_id, 0) + 1
-    print(f'cluster counts {cluster_counts}')
-
-    clustering_result = {node: cluster_id + 1 for node, cluster_id in partition.items()}
-
-    partition = {node: cluster_id + 1 for node, cluster_id in partition.items()}
-
-    return cluster_counts, partition, clustering_result
 
 
 def extract_reference_indices(response):
@@ -813,7 +820,6 @@ def extract_reference_indices(response):
 
     return transformed_numbers
 
-
 def calc_tf_idf(df_centrality):
     cluster_keywords = defaultdict(list)
 
@@ -837,7 +843,6 @@ def calc_tf_idf(df_centrality):
             cluster_keywords[cluster].append(feature_names[sorted_indices[i]])
 
     return cluster_keywords
-
 
 def bibtex_to_apa(bibtex_entry):
     apa_format = ""
@@ -904,15 +909,10 @@ def set_paper_information(papers):
     return papers
 
 
-def save_values():
-    print(st.session_state)
-    st.experimental_set_query_params(**st.session_state)
-    params = st.experimental_get_query_params()
-    print(params)
-
 
 # Y座標を少しランダムにずらすための関数を追加します
-def randomize_y_position(start, end, excluded, count):
+def randomize_y_position(start, end, excluded, count, seed=42):
+    random.seed(seed)
     ys = []
     while len(ys) < count:
         y = random.uniform(start, end)
@@ -969,28 +969,29 @@ def bernstein_poly(i, n, t):
     # ベルンシュタイン多項式を計算
     return comb(n, i) * (t ** (n - i)) * (1 - t) ** i
 
-def process_display_cluster(cluster_df):
-    display_cluster = cluster_df.copy()
-    display_cluster['Year'] = display_cluster['Year'].apply(lambda x: int(x.split('.')[0]))
-    return display_cluster
+# @st.cache_data
+def process_display_cluster(df_centrality, cluster_df):
+    display_cluster = df_centrality.copy()
+    display_cluster['Year'] = display_cluster['Year'].apply(lambda x: int(str(x).split('.')[0]))
+    cluster_df = cluster_df.copy()
+    cluster_df['Year'] = cluster_df['Year'].apply(lambda x: int(str(x).split('.')[0]))
+    return display_cluster, cluster_df
 
 
 # @st.cache_resource
-def create_quotient_graph(_H, _partition):
-    communities = defaultdict(list)
-    for node, comm_id in _partition.items():
-        communities[comm_id].append(node)
+def create_quotient_graph(_display_cluster, _H , _communities, _partition):
+    # dfを使用してcommunities辞書を作成（キー：クラスタ番号、値：所属ノードのリスト）
 
 
     # 新しいグラフ B を作成
     B = nx.Graph()
 
     # communities の各コミュニティをノードとして追加
-    for comm_id in communities.keys():
+    for comm_id in _communities.keys():
         B.add_node(comm_id)
 
-    # コミュニティ間のエッジを追加
-    for comm_id, nodes in communities.items():
+        # コミュニティ間のエッジを追加
+    for comm_id, nodes in _communities.items():
         # 当該コミュニティ内のノードについてループ
         for node in nodes:
             # ノードの隣接ノードについてループ
@@ -1007,14 +1008,13 @@ def create_quotient_graph(_H, _partition):
                         B.add_edge(comm_id, neighbor_comm_id, weight=1)
     return B
 
-# @st.cache_resource
-def process_communities(display_cluster, _H, _partition):
-    block_model_graph = create_quotient_graph(_H, _partition)
-    sorted_communities_by_year = display_cluster.sort_values('Year').index.tolist()
+# @st.cache_data
+def process_communities(display_cluster, cluster_df, _H, _communities, _partition):
+    block_model_graph = create_quotient_graph(display_cluster, _H, _communities, _partition)
+    sorted_communities_by_year = cluster_df.sort_values('Year').index.tolist()
     y_positions = randomize_y_position(-1, 1, set(), len(sorted_communities_by_year))
     pos = {node: (index, y) for index, (node, y) in enumerate(zip(sorted_communities_by_year, y_positions))}
     pos = {node: pos[node] for node in block_model_graph.nodes() if node in pos}
-
     return block_model_graph,  pos
 
 # @st.cache_resource
@@ -1032,22 +1032,21 @@ def process_edges(_block_model_graph, pos):
     return edge_traces, weights
 
 # @st.cache_resource
-def process_sizes(_block_model_graph, display_cluster):
-    min_citations = display_cluster['Node'].min()
-    max_citations = display_cluster['Node'].max()
+def process_sizes(_block_model_graph, cluster_df):
+    min_citations = cluster_df['Node'].min()
+    max_citations = cluster_df['Node'].max()
     size_base = 10
     min_size = size_base
     max_size = size_base * 10
     # ブロックモデルグラフのノードリストを取得
     block_nodes = list(_block_model_graph.nodes)
-
     sizes = [((citationCount - min_citations) / (max_citations - min_citations) * (max_size - min_size) + min_size)
-             if max_citations > min_citations else min_size for citationCount in display_cluster.loc[block_nodes, 'Node']]
+             if max_citations > min_citations else min_size for citationCount in cluster_df.loc[block_nodes, 'Node']]
 
     return sizes, block_nodes
 
 # @st.cache_resource
-def process_nodes(_block_model_graph, pos, display_cluster):
+def process_nodes(_block_model_graph, pos, cluster_df):
     # ノードの情報を抽出
     node_x = []
     node_y = []
@@ -1059,7 +1058,7 @@ def process_nodes(_block_model_graph, pos, display_cluster):
         node_y.append(y)
         # 'Keywords'列からホバーテキストを生成
         node_text.append(
-            f"{node}: {int(display_cluster.loc[node, 'Year'])}年({display_cluster.loc[node, 'Recent5YearsCount']}/{display_cluster.loc[node, 'Node']}) ({display_cluster.loc[node, 'CitationCount']}) {display_cluster.loc[node, 'ClusterKeywords']}")  # gbがクラスタの情報を含むDataFrameと仮定
+            f"{node}: {int(cluster_df.loc[node, 'Year'])}年({cluster_df.loc[node, 'Recent5YearsCount']}/{cluster_df.loc[node, 'Node']}) ({cluster_df.loc[node, 'CitationCount']}) {cluster_df.loc[node, 'ClusterKeywords']}")  # gbがクラスタの情報を含むDataFrameと仮定
     return   node_x, node_y, node_text
 
 def create_plot(sizes, block_nodes, node_x, node_y, node_text,  edge_traces):
@@ -1123,13 +1122,14 @@ def create_plot(sizes, block_nodes, node_x, node_y, node_text,  edge_traces):
     # Streamlitでのプロットの表示
     st.plotly_chart(fig)
 
-def plot_research_front(cluster_df, H, partition):
+@st.cache_data
+def plot_research_front(_df_centrality, _H, _cluster_df, _cluster_id_paper_ids, _partition):
     # 元の関数の実行部分
-    display_cluster = process_display_cluster(cluster_df)
-    block_model_graph,  pos = process_communities(display_cluster, H, partition)
+    display_cluster, cluster_df = process_display_cluster(_df_centrality, _cluster_df)
+    block_model_graph,  pos = process_communities(display_cluster, cluster_df, _H, _cluster_id_paper_ids, _partition)
     edge_traces, weights = process_edges(block_model_graph, pos)
-    sizes, block_nodes  = process_sizes(block_model_graph, display_cluster)
-    node_x, node_y, node_text = process_nodes(block_model_graph, pos, display_cluster)
+    sizes, block_nodes  = process_sizes(block_model_graph, cluster_df)
+    node_x, node_y, node_text = process_nodes(block_model_graph, pos, cluster_df)
     create_plot(sizes, block_nodes, node_x, node_y, node_text,  edge_traces)
 
 
@@ -1149,7 +1149,6 @@ if __name__=='__main__':
     if set_button:
         st.session_state['a'] = 0
         st.session_state['b'] = {"1": 2, (4,): 3}
-    save_values()
     refresh_button = st.button("REFRESH")
     if refresh_button:
         st.rerun()

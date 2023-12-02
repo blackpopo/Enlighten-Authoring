@@ -2,7 +2,6 @@ from tqdm import tqdm
 tqdm.pandas()
 from streamlit_utils import *
 from research_papers import research_papers
-from topk_review import topk_review_papers
 from cluster_review import cluster_review_papers
 
 def display_query():
@@ -25,13 +24,13 @@ def display_query():
     return query
 
 def app():
-    # refresh_button = st.button('Refresh button')
-    # if refresh_button:
-    #     st.rerun()
-    #
-    # debug_mode = st.checkbox("Debug Mode", value=True)
-    # if debug_mode:
-    #     st.session_state['debug'] = True
+    refresh_button = st.button('Refresh button')
+    if refresh_button:
+        st.rerun()
+
+    debug_mode = st.checkbox("Debug Mode", value=True)
+    if debug_mode:
+        st.session_state['debug'] = True
 
     display_query()
 
@@ -39,8 +38,6 @@ def app():
     display_year_input()
     research_papers()
 
-    # display_spaces(3)
-    # topk_review_papers()
     #コミュニティグラフによるレビュー
     cluster_review_papers()
 
