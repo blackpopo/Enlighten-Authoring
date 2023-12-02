@@ -111,26 +111,28 @@ def display_cluster_component():
         st.session_state['cluster_candidates'] = cluster_candidates
         st.session_state['cluster_keywords'] = display_clusters['ClusterKeywords'].values
 
-        for cluster_number in display_clusters.index:
-            selected_paper_ids = st.session_state['cluster_id_to_paper_ids'][cluster_number]
-            extracted_df = st.session_state['papers_df'][st.session_state['papers_df']['paperId'].isin(selected_paper_ids)]
-            display_clusters.loc[cluster_number, 'netNumberOfNodes'] = len(extracted_df)
-
-        rename_columns = {
-                'Node': "文献数",
-                "Year": "平均年",
-                'Recent5YearsCount' : "直近5年の文献数",
-                # "ClusterKeySentence": "クラスタの説明",
-                "ClusterKeywords": "キーワード",
-                # "CitationCount" : "引用年の中央値"
-
-            }
-        display_clusters.index.name = "クラスタ番号"
-        display_clusters.rename(columns= rename_columns, inplace=True)
+        # for cluster_number in display_clusters.index:
+        #     selected_paper_ids = st.session_state['cluster_id_to_paper_ids'][cluster_number]
+        #     extracted_df = st.session_state['papers_df'][st.session_state['papers_df']['paperId'].isin(selected_paper_ids)]
+        #     display_clusters.loc[cluster_number, 'netNumberOfNodes'] = len(extracted_df)
+        #
+        # rename_columns = {
+        #         'Node': "文献数",
+        #         "Year": "平均年",
+        #         'Recent5YearsCount' : "直近5年の文献数",
+        #         # "ClusterKeySentence": "クラスタの説明",
+        #         "ClusterKeywords": "キーワード",
+        #         # "CitationCount" : "引用年の中央値"
+        #
+        #     }
+        # display_clusters.index.name = "クラスタ番号"
+        # display_clusters.rename(columns= rename_columns, inplace=True)
 
         with st.spinner("⏳ クラスターの時間的な発展を描画中です。お待ち下さい。"):
-            plot_research_front(st.session_state['df_centrality'], st.session_state['H'],
-                                st.session_state['cluster_df'], st.session_state['cluster_id_to_paper_ids'],
+            _cluster_id_to_papers = st.session_state['cluster_id_to_paper_ids'].copy()
+            del _cluster_id_to_papers['all papers']
+            plot_research_front(st.session_state['df_centrality'],  st.session_state['H'],
+                                st.session_state['cluster_df'].copy().drop("all papers"), _cluster_id_to_papers,
                                 st.session_state['partition'])
 
         # display_spaces(2)
