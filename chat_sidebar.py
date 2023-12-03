@@ -79,9 +79,9 @@ def display_japanese_abstract_component():
         japanese_abstract_button = st.sidebar.button("日本語のアブストラクトを表示")
 
         if japanese_abstract_button:
-            with st.sidebar.spinner("⏳ 日本語アブストラクトの取得中です..."):
-                japanese_abstract = gpt_japanese_abstract(abstract)
-                st.session_state['chat_japanese_abstract'] = japanese_abstract
+            # with st.sidebar.spinner("⏳ 日本語アブストラクトの取得中です..."):
+            japanese_abstract = gpt_japanese_abstract(abstract)
+            st.session_state['chat_japanese_abstract'] = japanese_abstract
 
         if 'chat_japanese_abstract' in st.session_state:
             st.sidebar.write("日本語のアブストラクト")
