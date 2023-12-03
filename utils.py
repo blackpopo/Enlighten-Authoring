@@ -23,6 +23,7 @@ import numpy as np
 import community as community_louvain # python-louvain packageをインストールする必要があるわ
 import json
 import itertools
+import fitz  # PyMuPDF
 
 OPENAI_API_KEY = st.secrets['OPENAI_API_KEY']
 DEEPL_API_KEY = st.secrets['DEEPL_API_KEY']
@@ -111,7 +112,7 @@ def get_azure_gpt_response_json(system_input, model_name='gpt-4'):
         ],
         response_format={"type" : 'json_object'}
     )
-    print(response)
+    # print(response)
     return json.loads(response.choices[0].message.content)
 
 #クエリにもとづいて、Semantic Scholar から論文を offset を始めとして、 limit 分取得する。ただし、完全一致の論文のみが送信される。
@@ -552,53 +553,34 @@ def streamlit_summery_writer_with_draft(cluster_summary, draft, references, mode
     result.empty()
     return summary, caption
 
-def japanese_abstract_generate_prompt(papers):
-    references_text = ""
-    for paper_id, abstract in papers.iterrows():
-        references_text += f"paper_id: {paper_id}\n"
-        references_text += f"abstract: {abstract['abstract']}"
-        references_text += '\n\n'
+def japanese_abstract_generate_prompt(abstract):
 
     json_format = "{" \
-                  " 'data' : [" \
-                  "" \
-                  "{  'paper_index' : 論文番号を数字で出力, " \
                     " 'japanese_abstract': abstractを日本語に翻訳して出力" \
-                  "},..." \
-                  " ]" \
                   "}"
 
-    japanese_prompt = f""": 論文タイトル\n\n
-                {references_text}
+    japanese_prompt = f"""abstract: \n\n
+                {abstract}
                 \n\n
-                指示: paper_index ごとに提供された abstract を使って、与えられた論文番号ごとにタスクを実行しなさい。
-                タスク: 各論文の　abstract　を日本語に翻訳して、以下のJSON のフォーマットで出力する。
-
+                指示: 上記の abstract を一切省略せずに日本語に翻訳して、以下のJSON のフォーマットで出力する。\n\n
                 JSONフォーマット: \n
                 {json_format}
                 """
     return japanese_prompt
-def add_japanese_abstract(papers, model = 'gpt-4-1106-preview', separation = 10):
-    #abstract を含む論文の抜き出し
-    papers = papers.reset_index()
-    filtered_papers = papers[papers['abstract'].notnull()]
-    #100件ずつでプロンプトを作る
-    times = len(filtered_papers) // separation + 1
-    # 'papers' のインデックスを 'paper_index' という列名で列に変換
-    result_dataframe = []
-    for time in range(times):
-        temp_filtered_papers = filtered_papers[time * separation: (time + 1) * separation]
-        prompt = japanese_abstract_generate_prompt(temp_filtered_papers)
-        if not is_valid_tiktoken(model, prompt):
-            add_japanese_abstract(papers, model, int(separation / 2 ))
 
-        japanese_abstract_dataframe = get_azure_gpt_response_json(prompt, model)['data']
-        result_dataframe.append(japanese_abstract_dataframe)
-    abstract_dataframe = pd.concat(result_dataframe)
-    papers = pd.merge(papers, abstract_dataframe, left_on='index', right_on='paper_index', how='left')
-    papers = papers.set_index('index')
-    papers.drop(columns=['paper_index'], inplace=True)
-    return papers
+def gpt_japanese_abstract(abstract, model = 'gpt-3.5-turbo-1106'):
+    prompt = japanese_abstract_generate_prompt(abstract)
+    if is_valid_tiktoken(model, prompt):
+        try:
+            # print(prompt)
+            japanese_abstract = get_azure_gpt_response_json(prompt, model)['japanese_abstract']
+            return japanese_abstract
+        except Exception as e:
+            print(f"Error as {e}")
+            return f"エラーが発生しました。\n{e}"
+    else:
+        return "アブストラクトの長さが規定の長さよりも長いため送信できませんでした。"
+
 
 
 def construct_direct_quotations_graph(papers_df):
@@ -1120,6 +1102,53 @@ def plot_research_front(_df_centrality, _H, _cluster_df, _cluster_id_paper_ids, 
     sizes, block_nodes  = process_sizes(block_model_graph, cluster_df)
     node_x, node_y, node_text = process_nodes(block_model_graph, pos, cluster_df)
     create_plot(sizes, block_nodes, node_x, node_y, node_text,  edge_traces)
+
+# PDFをダウンロードする関数
+def download_pdf(url):
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'}
+        response = requests.get(url, headers=headers)
+        print(response.status_code)
+    except Exception as e:
+        print(f"Error happened as {e}")
+        return None
+    if response.status_code != 200:
+        print(f"Error: HTTP status code {response.status_code}")
+        return None
+
+    filename = url.split('/')[-1]
+    file_path = os.path.join(current_dir, "database", filename)
+    with open(file_path, 'wb') as f:
+        f.write(response.content)
+    return filename
+
+# PDFの内容をヘッダーとフッターを無視してテキストとして抽出する関数
+def extract_text_from_doc(doc):
+    text = ""
+    for page in doc:
+        # ページの寸法を取得
+        rect = page.rect
+        # ヘッダーとフッターの高さを定義
+        header_height = 50
+        footer_height = 50
+        # ページの本文のみを抽出するための矩形を定義
+        content_rect = fitz.Rect(rect.x0, rect.y0 + header_height, rect.x1, rect.y1 - footer_height)
+        # 定義した矩形内のテキストのみを抽出
+        text += page.get_text("text", clip=content_rect)
+    return text
+
+def extract_text_without_headers_footers(pdf_file):
+    pdf_path = os.path.join(current_dir, "database", pdf_file)
+    with fitz.open(pdf_path, filetype="pdf") as doc:
+        text = extract_text_from_doc(doc)
+    os.remove(pdf_path)
+    return text
+
+def extract_text_without_headers_footers_from_stream(stream):
+    with fitz.open(stream=stream.read(), filetype="pdf") as doc:
+        text = extract_text_from_doc(doc)
+    return text
 
 
 
