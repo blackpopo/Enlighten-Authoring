@@ -201,7 +201,7 @@ def display_each_cluster_component():
         else:
             raise ValueError(f"Invalid Sort { st.session_state['cluster_sort'] }")
 
-        st.session_state['cluster_df_detail'] = matched_papers_df.drop(columns =  ['Unnamed: 0', 'paperId'])
+        st.session_state['cluster_df_detail'] = matched_papers_df
 
 
 def generate_cluster_review_component():
