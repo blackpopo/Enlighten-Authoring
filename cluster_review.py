@@ -163,13 +163,9 @@ def display_each_cluster_component():
 
         #選択したクラスターで考える
         cluster_df_detail = get_cluster_papers(st.session_state['df_centrality'],  st.session_state['cluster_id_to_paper_ids'][selected_number])
-        st.session_state['cluster_df_detail'] = cluster_df_detail
-
         #ここで，all_papers から引っ張ってきた情報を表示させる．
         matched_papers_df = cluster_df_detail.merge(st.session_state['all_papers_df'], right_on='paperId', left_on='Node', how='inner')
-        # DegreeCentrality を結合する
-        # matched_papers_df['PageRank'] = matched_papers_df['PageRank'].map(
-        #     cluster_df_detail.set_index('Node')['PageRank'])
+
         temp_cluster_df_detail =  matched_papers_df.rename(columns={'PageRank': "Importance"})
         temp_cluster_df_detail.index.name = 'Paper ID'
 
@@ -196,6 +192,16 @@ def display_each_cluster_component():
             st.session_state['number_of_cluster_review_papers'] = number_of_papers
         #クラスタの年情報の追加
         display_cluster_years(temp_cluster_df_detail)
+
+        #streamlit にクラスタの情報を保存
+        if st.session_state['cluster_sort'] == "重要度":
+            matched_papers_df = matched_papers_df.sort_values('PageRank', ascending=False)
+        elif  st.session_state['cluster_sort'] == "出版年":
+            matched_papers_df = matched_papers_df.sort_values("year", ascending=False)
+        else:
+            raise ValueError(f"Invalid Sort { st.session_state['cluster_sort'] }")
+
+        st.session_state['cluster_df_detail'] = matched_papers_df.drop(columns =  ['Unnamed: 0', 'paperId'])
 
 
 def generate_cluster_review_component():

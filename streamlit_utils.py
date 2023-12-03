@@ -18,7 +18,9 @@ SemanticScholar_API_KEY = st.secrets['SEMANTICSCHOLAR_API_KEY']
 
 st.set_page_config(
     page_title="Enlighten Authoring",
-    initial_sidebar_state="auto")
+    initial_sidebar_state="auto",
+    layout="wide",
+)
 
 def display_dataframe(df, title, topk, columns=None):
     st.write(
@@ -52,9 +54,10 @@ def display_cluster_dataframe(df, title, topk):
     df['author names'] = df['authors'].apply(lambda x: [d.get('name') for d in x] if isinstance(x, list) else None)
     df['citation count'] = df['citationCount']
     df['published year'] = df['year'].apply(lambda x: str(x).replace('.0', ''))
+    df["open access"] = df["isOpenAccess"].apply(lambda x: "Yes" if x else "No")
 
-    df = df[['Title', 'Importance', 'abstract', 'published year', 'citation count', 'journal name', 'author names']]
-    df.columns = ['Title', 'Importance', 'Abstract', 'Published Year', 'Citation Count', 'Journal Name', 'Author Names']
+    df = df[['Title', 'Importance', 'abstract', 'published year', 'citation count', 'journal name', 'author names', 'open access']]
+    df.columns = ['Title', 'Importance', 'Abstract', 'Published Year', 'Citation Count', 'Journal Name', 'Author Names', 'Open Access']
     # インデックスをリセットして1から始まるように設定
     df.reset_index(drop=True, inplace=True)
     df.index = df.index + 1

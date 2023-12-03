@@ -3,6 +3,7 @@ tqdm.pandas()
 from streamlit_utils import *
 from research_papers import research_papers
 from cluster_review import cluster_review_papers
+from chat_side_bar import chat_about_papers
 
 def display_query():
     #Queryの管理
@@ -32,6 +33,7 @@ def app():
     if debug_mode:
         st.session_state['debug'] = True
 
+
     display_query()
 
     #年の指定ボタン
@@ -40,6 +42,9 @@ def app():
 
     #コミュニティグラフによるレビュー
     cluster_review_papers()
+
+    #チャット用のサイドバー
+    chat_about_papers()
 
 
 

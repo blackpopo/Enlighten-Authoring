@@ -60,6 +60,24 @@ def tiktoken_setup(offset = 8):
 
 tiktoken_dict = tiktoken_setup()
 
+
+def get_semantic_scholar_fields():
+    fields = ["paperId",
+              "title",
+              "abstract",
+              "year",
+              "authors",
+              "journal",
+              "isOpenAccess",
+              "openAccessPdf",
+              "citationCount",
+              "citationStyles",
+              "referenceCount",
+              ]
+
+    expand_fields = fields + ["references"] + [f"references.{field}" for field in fields]
+    return ",".join(expand_fields)
+
 def get_azure_gpt_response(system_input, model_name='gpt-4-32k'):
     response = client.chat.completions.create(
         model= model_name,
@@ -139,8 +157,7 @@ def _get_papers(query, year, offset, limit, fields):
 
 def get_papers(query_text, year, offset = 0, limit = 100, total_limit = 1000):
   papers = []
-  # fields = "paperId,title,abstract,year,authors,journal,citationCount,citationStyles,referenceCount,references,references.title,references.abstract,references.year,references.authors,references.citationCount,references.referenceCount,references.citationStyles"
-  fields = "paperId,title,abstract,year,authors,journal,citationCount,citationStyles,referenceCount,citations,references,references.title,references.abstract,references.year,references.authors,references.citationCount,references.referenceCount,references.citationStyles,references.journal"
+  fields = get_semantic_scholar_fields()
 
   # 最初の結果セットを取得
   # _get_papersはエラーが発生した場合 None を返す
@@ -234,7 +251,7 @@ def _get_papers_from_ids(paper_ids, fields):
 def get_papers_from_ids(paper_ids, offset=0, limit=20):
     total_results = []
     total_dict = {}
-    fields = "paperId,title,abstract,year,authors,journal,citationCount,citationStyles,referenceCount,citations,references,references.title,references.abstract,references.year,references.authors,references.citationCount,references.referenceCount,references.citationStyles,references.journal"
+    fields = get_semantic_scholar_fields()
 
     # 修正した進捗表示
     total_len = len(paper_ids)
@@ -684,40 +701,12 @@ def generate_windows(start_year, end_year, threshold_year ,window_size):
 
     return windows
 
-
-#グラフ全体Hに対してPageRankを計算する
-#クラスタごとにPageRank でまとまりを計算する．
-# @st.cache_data
-# def get_cluster_papers(_H, _G, cluster_nodes):
-#     # クラスタ0に属するノードだけでサブグラフを作成
-#     H_cluster = _H.subgraph(cluster_nodes)
-#
-#     # PageRankの計算. 全体のページランクを使用する．
-#     pagerank = nx.pagerank(_H, alpha=0.9)
-#
-#     # 次数中心性の計算
-#     degree_centrality = nx.degree_centrality(H_cluster)
-#
-#     # データフレームに変換
-#     df_centrality = pd.DataFrame(degree_centrality.items(), columns=['Node', 'DegreeCentrality'])
-#
-#     # タイトルを持つ新しいカラムを作成
-#     df_centrality['TitleNode'] = df_centrality['Node'].map(nx.get_node_attributes(_G, 'title'))
-#     df_centrality['Title'] = df_centrality['TitleNode'].str.replace('To:', '').str.replace('From:', '')
-#
-#     # PageRankをデータフレームに追加
-#     df_centrality['PageRank'] = df_centrality['Node'].map(pagerank)
-#
-#     # 次数中心性で降順ソート
-#     df_centrality = df_centrality.sort_values('PageRank', ascending=False)
-#
-#
-#     return df_centrality
-
 @st.cache_data
 def get_cluster_papers(df_centrality, cluster_nodes):
     df_centrality = df_centrality.copy()
     df_centrality_filtered = df_centrality[df_centrality['Node'].isin(cluster_nodes)]
+    df_centrality_filtered['Title'] = df_centrality_filtered['Title'].apply(lambda x: x.replace('To:', '').replace('From:', ''))
+
     return df_centrality_filtered
 
 # @st.cache_resource
