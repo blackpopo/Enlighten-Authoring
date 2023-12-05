@@ -3,6 +3,7 @@ import os
 from time import sleep
 import tiktoken
 current_dir = os.path.abspath(os.path.dirname(__file__))
+debug_data_folder = os.path.join(current_dir, 'debug_database')
 data_folder = os.path.join(current_dir, 'database')
 import re
 import ast
@@ -326,13 +327,13 @@ def decode_from_filename(filename):
 def save_papers_dataframe(df, query_text):
     encoded_query_text_without_extension = encode_to_filename(query_text)
     file_name = safe_filename(encoded_query_text_without_extension)
-    df.to_csv(os.path.join(data_folder, f'{file_name}.csv'), encoding='utf-8')
+    df.to_csv(os.path.join(debug_data_folder, f'{file_name}.csv'), encoding='utf-8')
 
 
 def load_papers_dataframe(query_text, literal_evals = ['references', 'authors', 'citationStyles']):
     encoded_query_text_without_extension = encode_to_filename(query_text)
     file_name = safe_filename(encoded_query_text_without_extension)
-    papers = pd.read_csv(os.path.join(data_folder, f'{file_name}.csv'))
+    papers = pd.read_csv(os.path.join(debug_data_folder, f'{file_name}.csv'))
     papers.reset_index(drop=True, inplace=True)
 
     for literal_eval_value in literal_evals:
@@ -683,12 +684,11 @@ def generate_windows(start_year, end_year, threshold_year ,window_size):
 
     return windows
 
-@st.cache_data
+# @st.cache_data
 def get_cluster_papers(df_centrality, cluster_nodes):
     df_centrality = df_centrality.copy()
     df_centrality_filtered = df_centrality[df_centrality['Node'].isin(cluster_nodes)]
     df_centrality_filtered['Title'] = df_centrality_filtered['Title'].apply(lambda x: x.replace('To:', '').replace('From:', ''))
-
     return df_centrality_filtered
 
 # @st.cache_resource
@@ -1139,7 +1139,7 @@ def extract_text_from_doc(doc):
     return text
 
 def extract_text_without_headers_footers(pdf_file):
-    pdf_path = os.path.join(current_dir, "database", pdf_file)
+    pdf_path = os.path.join(data_folder, pdf_file)
     with fitz.open(pdf_path, filetype="pdf") as doc:
         text = extract_text_from_doc(doc)
     os.remove(pdf_path)

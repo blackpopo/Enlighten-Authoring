@@ -1,3 +1,5 @@
+import pandas as pd
+
 from streamlit_utils import *
 from utils import *
 
@@ -76,12 +78,16 @@ def display_japanese_abstract_component():
     if 'chat_selected_paper' in st.session_state:
         abstract  = st.session_state['chat_selected_paper']['abstract']
         # 論文とのチャット部分
-        japanese_abstract_button = st.sidebar.button("日本語のアブストラクトを表示")
+        if not 'chat_japanese_abstract' in st.session_state and pd.notna(abstract):
+            japanese_abstract_button = st.sidebar.button("日本語のアブストラクトを表示")
+        else:
+            japanese_abstract_button = False
 
         if japanese_abstract_button:
             # with st.sidebar.spinner("⏳ 日本語アブストラクトの取得中です..."):
             japanese_abstract = gpt_japanese_abstract(abstract)
             st.session_state['chat_japanese_abstract'] = japanese_abstract
+            st.rerun()
 
         if 'chat_japanese_abstract' in st.session_state:
             st.sidebar.write("日本語のアブストラクト")
@@ -89,9 +95,9 @@ def display_japanese_abstract_component():
 
 
 def display_open_access_paper_information_component():
-    if 'chat_selected_paper' in st.session_state:
+    if 'chat_selected_paper' in st.session_state and not 'chat_pdf_text' in st.session_state:
         selected_paper = st.session_state['chat_selected_paper']
-        if selected_paper['isOpenAccess']:
+        if selected_paper['isOpenAccess'] and pd.notna(selected_paper["openAccessPdf"]):
             detail_button = st.sidebar.button("チャットを開始")
             if detail_button:
                 pdf_url = selected_paper["openAccessPdf"]["url"]
@@ -113,7 +119,7 @@ def display_open_access_paper_information_component():
             st.sidebar.write("論文の PDF のリンク")
             st.sidebar.write(selected_paper['linked_APA'], unsafe_allow_html=True)
             file_upload = st.sidebar.file_uploader("論文をアップロードしてください。", type=['pdf'])
-            detail_button = st.sidebar.button("チャットの開始")
+            detail_button = st.sidebar.button("チャットを開始")
             if detail_button:
                 if file_upload:
                     pdf_text = extract_text_without_headers_footers_from_stream(file_upload)
@@ -131,15 +137,16 @@ def display_chat_component():
         #chat の入力部分
         prompt = st.sidebar.text_input("論文について聞きたいことを入力してください。")
         prompt_button = st.sidebar.button("送信")
-        if len(prompt) > 0 and prompt_button:
-            st.sidebar.write(f"User has sent the following prompt: {prompt}")
-            st.session_state["chat_log"].append({"role": "user", "content" : prompt})
-            st.sidebar.write(f"ユーザーの入力内容 {prompt}")
-            gpt_response = prompt
-            st.session_state["chat_log"].append({"role": "assistant", "content": gpt_response})
-            st.rerun()
-        else:
-            st.sidebar.write("メッセージが入力されていません。")
+        if prompt_button:
+            if len(prompt) > 0:
+                st.sidebar.write(f"User has sent the following prompt: {prompt}")
+                st.session_state["chat_log"].append({"role": "user", "content" : prompt})
+                st.sidebar.write(f"ユーザーの入力内容 {prompt}")
+                gpt_response = prompt
+                st.session_state["chat_log"].append({"role": "assistant", "content": gpt_response})
+                st.rerun()
+            else:
+                st.sidebar.write("メッセージが入力されていません。")
         # st.sidebar.write(st.session_state['chat_pdf_text'])
 
 
