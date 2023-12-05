@@ -142,7 +142,7 @@ def display_chat_component():
                 st.sidebar.write(f"User has sent the following prompt: {prompt}")
                 st.session_state["chat_log"].append({"role": "user", "content" : prompt})
                 st.sidebar.write(f"ユーザーの入力内容 {prompt}")
-                gpt_response = prompt
+                gpt_response = f"テスト中のためオウム返し: {prompt}"
                 st.session_state["chat_log"].append({"role": "assistant", "content": gpt_response})
                 st.rerun()
             else:
