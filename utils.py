@@ -1093,7 +1093,7 @@ def create_plot(sizes, block_nodes, node_x, node_y, node_text,  edge_traces):
     # Streamlitでのプロットの表示
     st.plotly_chart(fig)
 
-@st.cache_data
+# @st.cache_data
 def plot_research_front(_df_centrality, _H, _cluster_df, _cluster_id_paper_ids, _partition):
     # 元の関数の実行部分
     display_cluster, cluster_df = process_display_cluster(_df_centrality, _cluster_df)
