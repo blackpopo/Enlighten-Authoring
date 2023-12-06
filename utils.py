@@ -587,7 +587,6 @@ def gpt_japanese_abstract(abstract, model = 'gpt-3.5-turbo-1106'):
 def construct_direct_quotations_graph(papers_df):
     # 直接引用法によるネットワークを作成するためにGraphの初期化
     G = nx.Graph()
-
     # papers_df DataFrameをループして処理
     for k in range(len(papers_df)):
         paper_id = papers_df.loc[k, 'paperId']
