@@ -850,7 +850,6 @@ def gpt_japanese_paper_interpreter(abstract, model = 'gpt-4-1106-preview'):
 def construct_direct_quotations_graph(papers_df):
     # 直接引用法によるネットワークを作成するためにGraphの初期化
     G = nx.Graph()
-
     # papers_df DataFrameをループして処理
     for k in range(len(papers_df)):
         paper_id = papers_df.loc[k, 'paperId']
@@ -1356,7 +1355,7 @@ def create_plot(sizes, block_nodes, node_x, node_y, node_text,  edge_traces):
     # Streamlitでのプロットの表示
     st.plotly_chart(fig)
 
-@st.cache_data
+# @st.cache_data
 def plot_research_front(_df_centrality, _H, _cluster_df, _cluster_id_paper_ids, _partition):
     # 元の関数の実行部分
     display_cluster, cluster_df = process_display_cluster(_df_centrality, _cluster_df)

@@ -127,6 +127,9 @@ def display_cluster_component():
         #     }
         # display_clusters.index.name = "クラスタ番号"
         # display_clusters.rename(columns= rename_columns, inplace=True)
+        #
+        # display_spaces(2)
+        # display_dataframe(display_clusters, f'クラスタに含まれる文献数とキーワード', len(display_clusters), list(rename_columns.values()))
 
         with st.spinner("⏳ クラスターの時間的な発展を描画中です。お待ち下さい。"):
             _cluster_id_to_papers = st.session_state['cluster_id_to_paper_ids'].copy()
@@ -135,12 +138,11 @@ def display_cluster_component():
                                 st.session_state['cluster_df'].copy().drop("all papers"), _cluster_id_to_papers,
                                 st.session_state['partition'])
 
-        # display_spaces(2)
-        # display_dataframe(display_clusters, f'クラスタに含まれる文献数とキーワード', len(display_clusters), list(rename_columns.values()))
+
 
 
 def display_each_cluster_component():
-    if 'cluster_candidates' in st.session_state and 'H' in st.session_state and 'G' in st.session_state and 'cluster_id_to_paper_ids' in st.session_state :
+    if 'cluster_candidates' in st.session_state and 'H' in st.session_state and 'G' in st.session_state and 'cluster_id_to_paper_ids' in st.session_state and len(st.session_state['cluster_candidates']) > 0:
         assert len(st.session_state['cluster_candidates']) == len(st.session_state['cluster_keywords']), f"{len(st.session_state['cluster_candidates'])} : {len(st.session_state['cluster_keywords'])}"
         detailed_cluster_dict = {f'{cluster_number} : {cluster_keyword}' : cluster_number for cluster_number, cluster_keyword in zip(st.session_state['cluster_candidates'] , st.session_state['cluster_keywords'])}
         selected_number_key = st.selectbox('詳細を表示するクラスタ番号を選んでください。', detailed_cluster_dict.keys())
