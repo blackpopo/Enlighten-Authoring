@@ -190,8 +190,6 @@ def display_chat_component():
                 st.sidebar.write("メッセージが入力されていません。")
         # st.sidebar.write(st.session_state['chat_pdf_text'])
 
-
-
 def chat_about_papers():
     # if not ('selected_number' in st.session_state and 'cluster_df_detail' in st.session_state):
     #     st.rerun()
