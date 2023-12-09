@@ -102,9 +102,9 @@ def get_azure_gpt_response_stream(system_input, model_name='gpt-4-32k'):
 def get_azure_gpt_message_stream(messages, model_name='gpt-4-32k'):
     response = client.chat.completions.create(
         model= model_name,
-        messages=[
+        messages=
           messages
-        ],
+        ,
         stream = True
     )
     return response

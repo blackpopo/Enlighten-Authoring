@@ -128,7 +128,7 @@ def get_open_access_info(open_access_pdf):
     return pdf_url, status
 
 def display_open_access_paper_information_component():
-    if 'chat_selected_paper' in st.session_state and not 'chat_pdf_text' in st.session_state:
+    if 'chat_selected_paper' in st.session_state:
         selected_paper = st.session_state['chat_selected_paper']
         if 'chat_is_open_access' in st.session_state:
             is_open_access = st.session_state['chat_is_open_access']
