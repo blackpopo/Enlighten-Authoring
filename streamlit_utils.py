@@ -56,6 +56,7 @@ def display_cluster_dataframe(df, title, topk):
     df['published year'] = df['year'].apply(lambda x: str(x).replace('.0', ''))
     df["open access"] = df["isOpenAccess"].apply(lambda x: "Yes" if x else "No")
 
+
     df = df[['Title', 'Importance', 'abstract', 'published year', 'citation count', 'journal name', 'author names', 'open access']]
     df.columns = ['Title', 'Importance', 'Abstract', 'Published Year', 'Citation Count', 'Journal Name', 'Author Names', 'Open Access']
     # インデックスをリセットして1から始まるように設定

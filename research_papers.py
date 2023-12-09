@@ -16,15 +16,15 @@ def research_papers():
         all_reset_session(session_state=st.session_state, except_key=['debug', 'query', 'year'])
         with st.spinner("⏳ Semantic Scholar　から論文を取得しています..."):
             if os.path.exists(os.path.join(data_folder, f"{safe_filename(encode_to_filename(query))}.csv")) and st.session_state['debug']:
-                display_description(f"{query} を Semantic Scholar で検索済みです。\n")
+                display_description(f"{query} は検索済みです。\n")
                 papers_df = load_papers_dataframe(query)
                 all_papers_df = load_papers_dataframe(query + '_all', [ 'authors', 'citationStyles'])
                 total = None
             else:
-                display_description(f"{query} を Semantic Scholar で検索中です。\n")
+                display_description(f"{query} を検索中です。\n")
                 #Semantic Scholar による論文の保存
                 #良い論文の100件の取得, yearの0は検索用の文字列
-                papers, total = get_papers(query, st.session_state['year'][0], limit=20, total_limit=total_limit)
+                papers, total = get_papers(st.empty(), query, st.session_state['year'][0], limit=20, total_limit=total_limit)
                 # config への保存
                 st.session_state['papers'] = papers
                 if len(st.session_state['papers']) > 0:
@@ -54,10 +54,10 @@ def research_papers():
         #検索からの結果かデータベースに保存していた結果であることの表示
         if total:
             display_description(f"Semantic Scholar からの検索が完了しました。")
-            display_description(f"{len(st.session_state['papers_df'])} / {total} の論文を取得しました。\n参考文献を含めて {len(st.session_state['all_papers_df'])} 件の論文を取得しました。")
+            display_description(f"{len(st.session_state['papers_df'])} 件の論文とその参考文献{len(st.session_state['all_papers_df'])}件の論文を取得しました。({total}件中)")
         else:
             display_description(f"データベースに保存されていた検索結果の読み込みが完了しました。")
-            display_description(f"検索履歴から {len(st.session_state['papers_df'])} 件の論文を取得しました。\n参考文献を含めて {len(st.session_state['all_papers_df'])} 件の論文を取得しました。")
+            display_description(f"{len(st.session_state['papers_df'])} 件の論文とその参考文献{len(st.session_state['all_papers_df'])}件の論文を取得しました。")
 
     else:
         st.write("検索キーワードを入力してください。")

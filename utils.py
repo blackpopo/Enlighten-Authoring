@@ -99,6 +99,16 @@ def get_azure_gpt_response_stream(system_input, model_name='gpt-4-32k'):
     )
     return response
 
+def get_azure_gpt_message_stream(messages, model_name='gpt-4-32k'):
+    response = client.chat.completions.create(
+        model= model_name,
+        messages=[
+          messages
+        ],
+        stream = True
+    )
+    return response
+
 def get_azure_gpt_response_json(system_input, model_name='gpt-4'):
     if 'gpt-3.5' in model_name:
         model = 'gpt-3.5-turbo-1106'
@@ -130,7 +140,7 @@ def suggest_paper_completions(query):
 
 
 #クエリにもとづいて、Semantic Scholar から論文を offset を始めとして、 limit 分取得する。
-def _get_papers(query, year, offset, limit, fields):
+def _get_papers(streamlit_empty, query, year, offset, limit, fields):
     base_url = "http://api.semanticscholar.org/graph/v1/paper/search"
     params = {"query": query, "offset": offset, "limit": limit, "fields": fields, 'year': year}
     headers = {"x-api-key": SEMANTICSCHOLAR_API_KEY}  # API keyをヘッダーに追加
@@ -140,16 +150,18 @@ def _get_papers(query, year, offset, limit, fields):
         try:
             response = requests.get(base_url, params=params, headers=headers)
             if response.status_code == 200:
-              return response.json()
+                return response.json()
             elif response.status_code == 504:
-              print(f"Request timed out, retrying... {retries} attempts left")
-              retries -= 1
-              sleep(1)  # タイムアウトした場合、少し待つ
+                streamlit_empty.write(f"Request timed out, retrying... {retries} attempts left")
+                print(f"Request timed out, retrying... {retries} attempts left")
+                retries -= 1
+                sleep(1)  # タイムアウトした場合、少し待つ
             else:
-              print(f"Request failed with status {response.status_code}")
-              print(f"Request error message {response.reason}")
-              print(f"Request content {response.content}")
-              return None
+                streamlit_empty.write(f"Request error message {response.reason}")
+                print(f"Request failed with status {response.status_code}")
+                print(f"Request error message {response.reason}")
+                print(f"Request content {response.content}")
+                return None
         except Exception as e:
             print(f"ERROR HAPPENED AS {e}")
             return None
@@ -157,32 +169,35 @@ def _get_papers(query, year, offset, limit, fields):
     print("All retries failed")
     return None
 
-def get_papers(query_text, year, offset = 0, limit = 100, total_limit = 1000):
+def get_papers(streamlit_empty, query_text, year, offset = 0, limit = 100, total_limit = 1000):
   papers = []
   fields = get_semantic_scholar_fields()
 
   # 最初の結果セットを取得
   # _get_papersはエラーが発生した場合 None を返す
-  result = _get_papers(query_text, year, offset, limit, fields=fields)
+  result = _get_papers(streamlit_empty, query_text, year, offset, limit, fields=fields)
   if not result or result['total'] == 0:
     return [], 0
 
 
   papers.extend(result['data'])
   print(f"Total results is {result['total']}.")
+  streamlit_empty.write(f"{min(round(limit / min(total_limit, result['total']) * 100, 1), 100)}%の論文を取得しました。")
   print(f"{min(round(limit / min(total_limit, result['total']) * 100, 1), 100)}%")
 
   # 1000件未満なら全件取得
   while len(papers) < min(total_limit, result['total']):
       offset += limit
-      result = _get_papers(query_text, year, offset, limit, fields=fields)
+      result = _get_papers(streamlit_empty, query_text, year, offset, limit, fields=fields)
       if not result:
           if len(papers) > 0:
               break
           else:
             return [], 0
       print(f"{min(round(min(total_limit, offset + limit) / min(total_limit, result['total']) * 100, 1), 100)}%")
+      streamlit_empty.write(f"{min(round(min(total_limit, offset + limit) / min(total_limit, result['total']) * 100, 1), 100)}%の論文を取得しました。")
       papers.extend(result['data'])
+  streamlit_empty.empty()
   return papers, result['total']
 
 #Reference を含めた正規化された論文一覧
@@ -289,21 +304,8 @@ def get_papers_from_ids(paper_ids, offset=0, limit=20):
 
 
 def safe_filename(filename):
-    """
-    ファイル名を安全な形式に変換する。
-
-    Parameters:
-        filename (str): 元のファイル名
-
-    Returns:
-        str: 安全なファイル名
-    """
-    # 不要な文字を取り除く。ここではアルファベット、数字、アンダースコア、ハイフン、スペース以外のすべての文字を取り除きます。
     safe_name = re.sub(r'[^a-zA-Z0-9_\- ]', '', filename)
-
-    # スペースをアンダースコアに変換する（オプション）
     safe_name = safe_name.replace(' ', '_')
-
     return safe_name
 
 def encode_to_filename(s):
@@ -352,81 +354,256 @@ def is_valid_tiktoken(model_name, prompt):
     else:
         return False
 
+def title_long_review_generate_prompt(abstracts, query_text, language):
+    abstracts_text = "\n\n".join(abstracts)
+
+    if language == 'English':
+        long_templates = []
+
+        templates_header = f"""
+            You are a researcher working on a literature review. The following are abstracts of academic papers to be reviewed.\n\n
+            {abstracts_text}\n\n
+            Based on these, please perform the following tasks to create a literature review on {query_text}. Do not use prior knowledge or assumptions, and answer with lateral thinking.\n
+            Describe as instructed in the items marked with '##'.
+            \n
+        """
+
+        long_templates.append(templates_header + f"""
+            Please define {query_text} within 1000 characters. If available, also mention demographics and prevalence.\n
+            In your answer, please cite using the format [number]. If the abstract mentions OpenAccess, write it as [number OpenAccess]. Please answer in Japanese.\n
+            Try to make your response as lengthy as possible. Now, take a deep breath and start answering.\n
+            \n
+            ## Definition\n
+            """)
+
+        long_templates.append(templates_header + """
+            Organize the content of the given abstracts and describe them comprehensively within 1000 characters. Cover all important points and main ideas presented in the original text, while condensing the information into a concise and understandable format. Include relevant details and examples that support the main ideas, avoiding unnecessary information and repetition. The length should be sufficiently long, providing a clear and accurate summary without omitting important information.\n
+            In your answer, please cite using the format [number]. If the abstract mentions OpenAccess, write it as [number OpenAccess]. Please answer in Japanese.\n
+            Try to make your response as lengthy as possible. Now, take a deep breath and start answering.\n
+            \n
+            ## Summary\n
+            """)
+
+        long_templates.append(templates_header + """
+            Discuss recent developments in this research field within 1000 characters, considering the publication year indicated in (Published in). Place particular emphasis on developments within the last five years.\n
+            Cover all important points and main ideas presented in the abstracts, while condensing the information into a concise and understandable format. Include relevant details and examples that support the main ideas, avoiding unnecessary information and repetition. The length should be sufficiently long, providing a clear and accurate summary without omitting important information.\n
+            In your answer, please cite using the format [number]. If the abstract mentions OpenAccess, write it as [number OpenAccess]. Please answer in Japanese.\n
+            Try to make your response as lengthy as possible. Now, take a deep breath and start answering.\n
+            \n
+            ## Recent Developments\n
+            """)
+
+        long_templates.append(templates_header + """
+            List and explain in detail the unresolved issues in the research field pointed out in these abstracts, within 1000 characters for each item.\n
+            Information on unresolved issues should be as comprehensive as possible. If you cannot reflect all information from the abstracts, state 'References to other unresolved issues are also found in other abstracts ([number][number][number]...)' and indicate the [number] of those abstracts.\n
+            -
+            -
+            -
+            In your answer, please cite using the format [number]. If the abstract mentions OpenAccess, write it as [number OpenAccess]. Please answer in Japanese.\n
+            Try to make your response as lengthy as possible. Now, take a deep breath and start answering.\n
+            \n
+            ## Unresolved Issues\n
+            """)
+
+        long_templates.append(templates_header + """
+            List and explain in detail the methods and treatments used in this research field and their effects, as pointed out in these abstracts, within 1000 characters for each item.\n
+            Information on methods and treatments should be as comprehensive as possible. If you cannot reflect all information from the abstracts, state 'References to other methods/treatments are also found in other abstracts ([number][number][number]...)' and indicate the [number] of those abstracts.\n
+            -
+            -
+            -
+            In your answer, please cite using the format [number]. If the abstract mentions OpenAccess, write it as [number OpenAccess]. Please answer in Japanese.\n
+            Try to make your response as lengthy as possible. Now, take a deep breath and start answering.\n
+            \n
+            ## Methods\n
+            """)
+
+        long_templates.append(templates_header + """
+            List and explain in detail the drugs used in this research field and their safety and efficacy, as pointed out in these abstracts, within 1000 characters for each item.\n
+            Information on drugs should be as comprehensive as possible. If you cannot reflect all information from the abstracts, state 'References to other drugs are also found in other abstracts ([number][number][number]...)' and indicate the [number] of those abstracts.\n
+            -
+            -
+            -
+            In your answer, please cite using the format [number]. If the abstract mentions OpenAccess, write it as [number OpenAccess]. Please answer in Japanese.\n
+            Try to make your response as lengthy as possible. Now, take a deep breath and start answering.\n
+            \n
+            ## Drugs\n
+            """)
+        return long_templates
+
+    if language == '日本語':
+        long_templates = []
+
+        templates_header = f"""
+            あなたは文献レビューに取り組む研究者です。以下は文献レビューの対象となる学術論文のアブストラクトです。\n\n
+            {abstracts_text}\n\n
+            これらに基づいて、{query_text}についての文献レビューを作成するための以下のタスクを実行してください。なお、事前知識や思い込みは使用しないで、水平思考で答えてください。\n
+            以下の「## 」で記された項目について指示通りに述べなさい。
+            \n
+        """
+
+        long_templates.append(templates_header + f"""
+        {query_text}について1000字以内で定義してください。情報があれば人口動態や罹患率についても述べてください。\n
+        回答にあたっては、[number]という形式で引用を明記してください。アブストラクトにOpenAccessと明記されている場合には[number OpenAccess]と記述してください。日本語で回答してください。\n
+        文章の分量はできるだけ多くしてください。では、深呼吸をして回答に取り組んでください。\n
+        \n
+        ## 定義\n
+        """)
+
+        long_templates.append(templates_header + """
+        与えられたアブストラクトの内容を整理して、1000字以内で包括的に記述してください。原文で提示されている重要なポイントや主要なアイデアをすべてカバーすると同時に、情報を簡潔で理解しやすい形式に凝縮する必要があります。不必要な情報や繰り返しを避けながら、主要なアイデアを裏付ける関連する詳細や例を含めるようにしてください。長さは十分に長くであるべきで、重要な情報を省略することなく、明確で正確な概要を提供すること。\n
+        回答にあたっては、[number]という形式で引用を明記してください。アブストラクトにOpenAccessと明記されている場合には[number OpenAccess]と記述してください。日本語で回答してください。\n
+        文章の分量はできるだけ多くしてください。では、深呼吸をして回答に取り組んでください。\n
+        \n
+        ## 要約\n
+        """)
+
+        long_templates.append(templates_header + """
+        この研究分野の最近の発展について（Published in）に示される出版年を参考に1000字以内で述べてください。特に5年以内の発展を重視すること。\n
+        アブストラクトで提示されている重要なポイントや主要なアイデアをすべてカバーすると同時に、情報を簡潔で理解しやすい形式に凝縮する必要があります。不必要な情報や繰り返しを避けながら、主要なアイデアを裏付ける関連する詳細や例を含めるようにしてください。文章の長さは、十分に長くあるべきで、重要な情報を省略することなく、明確で正確な概要を提供すること。\n
+        回答にあたっては、[number]という形式で引用を明記してください。アブストラクトにOpenAccessと明記されている場合には[number OpenAccess]と記述してください。日本語で回答してください。\n
+        文章の分量はできるだけ多くしてください。では、深呼吸をして回答に取り組んでください。\n
+        \n
+        ## 最近の発展\n
+        """)
+
+        long_templates.append(templates_header + """
+        これらのアブストラクトで指摘されている研究分野の未解決の問題をリストアップして、各項目について1000字以内で詳細に説明してください。\n
+        未解決の問題に関する情報は包括的であればあるほど望ましいです。もしアブストラクトの情報をすべて反映できない場合には「他の未解決の問題についての言及も他のアブストラクトの中にあります（[number][number][number]...）」とそのアブストラクトの[number]を示して述べてください。\n
+        -
+        -
+        -
+        回答にあたっては、[number]という形式で引用を明記してください。アブストラクトにOpenAccessと明記されている場合には[number OpenAccess]と記述してください。日本語で回答してください。\n
+        文章の分量はできるだけ多くしてください。では、深呼吸をして回答に取り組んでください。\n
+        \n
+        ## 未解決の問題\n
+        """)
+
+        long_templates.append(templates_header + """
+        これらのアブストラクトで指摘されているこの研究分野で用いられている手法や治療法とその効果をリストアップして、各項目について1000字以内で詳細に説明しtください。\n
+        手法や治療法の情報は包括的であればあるほど望ましいです。もしアブストラクトの情報をすべて反映できない場合には「他の手法・治療法についての言及も他のアブストラクトの中にあります（[number][number][number]...）」とそのアブストラクトの[number]を示して述べてください。\n
+        -
+        -
+        -
+        回答にあたっては、[number]という形式で引用を明記してください。アブストラクトにOpenAccessと明記されている場合には[number OpenAccess]と記述してください。日本語で回答してください。\n
+        文章の分量はできるだけ多くしてください。では、深呼吸をして回答に取り組んでください。\n
+        \n
+        ## 手法\n
+        """)
+
+        long_templates.append(templates_header + """
+        これらのアブストラクトで指摘されているこの研究分野で用いられている薬剤とその安全性・有効性をリストアップして、各項目について1000字以内で詳細に説明してください。\n
+        薬剤の情報は包括的であればあるほど望ましいです。もしアブストラクトの情報をすべて反映できない場合には「他の薬剤についての言及も他のアブストラクトの中にあります（[number][number][number]...）」とそのアブストラクトの[number]を示して述べてください。\n
+        -
+        -
+        -
+        回答にあたっては、[number]という形式で引用を明記してください。アブストラクトにOpenAccessと明記されている場合には[number OpenAccess]と記述してください。日本語で回答してください。\n
+        文章の分量はできるだけ多くしてください。では、深呼吸をして回答に取り組んでください。\n
+        \n
+        ## 薬剤\n
+        """)
+        return long_templates
+
+    raise ValueError(f"Invalid language {language}")
+
 
 def title_review_generate_prompt(abstracts, query_text, language):
     abstracts_text = "\n\n".join(abstracts)
 
-    # Query:\n\n{query_text}を Academic Abstracts のあとに入れる？
-    prompt = f"""Academic abstracts: \n\n {abstracts_text} 
-                Instructions: These Abstracts are the most frequently referenced references in the literature and are assumed to provide background or theoretical perspectives.
-                It is assumed that the smaller numbered papers are basic references that are referenced more often in the field, and that as the number increases, they become more closely related to a particular field (in this case, query).
-                Note that the literature review will be structured so that the discussion begins with an understanding of the basic literature and then evolves to something closer to the query.
-                Do three tasks:
-                Task1: Write literature review of these abstract using all references.
-                Task2: Discuss the latest developments in 5 years, specifying the publication year information in (published in ).
-                Task3: What are the unmet medical needs in this relm in detail?
-                Task4: What treatment methods are currently employed in detail?
-                Do not use prior knowledge or your own assumptions.
-                Make sure to cite results using [number] notation after the sentence.
-
-                ## Summary ##
-
-                ## Latest developments ##
-
-                ## Unmet medical needs ##
-
-                ## Treatments ##
-
-                You must reply in English in Markdown format. and write as long as possible.
-                """
-
-    japanese_prompt = f"""以下は学術論文のアブストラクトです。\n\n
-                        {abstracts_text}\n
-                        \n
-                        これらのアブストラクトは{1}に関する研究分野の重要な知見をもたらしています。\n
-                        これらに基づいて以下のタスクを実行してください。なお、事前知識や思い込みは使用しないで、水平思考で答えてください。\n
-                        オーディエンスとしては、詳細な解析のための情報を必要とする製薬企業の開発担当者を想定してください。\n
-                        \n
-                        ## 定義\n
-                        {query_text}について定義してください。情報があれば人口動態や罹患率についても述べてください。\n
-                        \n
-                        ## 要約\n
-                        与えられたアブストラクトを包括的に要約してください。要約は、原文で提示されている重要なポイントや主要なアイデアをすべてカバーすると同時に、情報を簡潔で理解しやすい形式に凝縮する必要があります。不必要な情報や繰り返しを避けながら、主要なアイデアを裏付ける関連する詳細や例を含めるようにしてください。
-                        要約の長さは、原文の長さと複雑さに対して適切であるべきで、重要な情報を省略することなく、明確で正確な概要を提供すること。\n
-                        出力は20文出力して、行数を数えてください。\n
-                        \n
-                        ## 最近の発展\n
-                        この研究分野の最近の発展について（Published in）に示される出版年を参考に述べてください。特に5年以内の発展を重視すること。\n
-                        アブストラクトで提示されている重要なポイントや主要なアイデアをすべてカバーすると同時に、情報を簡潔で理解しやすい形式に凝縮する必要があります。
-                        不必要な情報や繰り返しを避けながら、主要なアイデアを裏付ける関連する詳細や例を含めるようにしてください。文章の長さは、原文の長さと複雑さに対して適切であるべきで、重要な情報を省略することなく、明確で正確な概要を提供すること。\n
-                        出力は20文出力して、行数を数えてください。\n
-                        \n
-                        ## 未解決の問題\n
-                        これらのアブストラクトで指摘されている研究分野の未解決の問題をリストアップして、各項目について詳細に説明してください。\n
-                        - \n
-                        - \n
-                        - \n
-                        \n
-                        ## 手法\n
-                        これらのアブストラクトで指摘されているこの研究分野で用いられている手法や治療法とその効果をリストアップして、各項目について詳細に説明しtください。\n
-                        - \n
-                        - \n
-                        - \n
-                        \n
-                        ## 薬剤\n
-                        これらのアブストラクトで指摘されているこの研究分野で用いられている薬剤とその安全性・有効性をリストアップして、各項目について詳細に説明してください。\n
-                        - \n
-                        - \n
-                        - \n
-                        \n
-                        回答にあたっては、[number]という形式で引用を明記してください。必ず Markdown 形式の日本語で回答してください。\n
-                        では、深呼吸をして回答に取り組んでください。\n
-                        """
-
-    if language == '日本語':
-        return japanese_prompt
-    else:
+    if language == "English":
+        # Query:\n\n{query_text}を Academic Abstracts のあとに入れる？
+        prompt = f"""You are a researcher working on a literature review. The following are abstracts of academic papers you have gathered for the review.\n\n
+                    {abstracts_text}
+                    \n
+                    Based on these, please perform the following tasks to create a literature review on {query_text}. Ignore abstracts that are not related to {query_text}.
+                    Do not use prior knowledge or assumptions, and answer with lateral thinking.\n
+                    \n
+                    ## Definition\n
+                    Please define {query_text} within 1000 characters. If available, also mention demographics and prevalence.\n
+                    \n
+                    ## Summary\n
+                    Organize the content of the given abstracts and describe them comprehensively within 1000 characters. Cover all important points and main ideas presented in the original text, while condensing the information into a concise and understandable format. Avoid unnecessary information and repetition, and include relevant details and examples that support the main ideas. The length should be sufficiently long, providing a clear and accurate summary without omitting important information.\n
+                    \n
+                    ## Recent Developments\n
+                    Discuss recent developments in this research field within 1000 characters, considering the publication year indicated in (Published in). Place particular emphasis on developments within the last five years.\n
+                    Cover all important points and main ideas presented in the abstracts, while condensing the information into a concise and understandable format. Avoid unnecessary information and repetition, and include relevant details and examples that support the main ideas. The length should be sufficiently long, providing a clear and accurate summary without omitting important information.\n
+                    \n
+                    ## Unresolved Issues\n
+                    List and explain in detail the unresolved issues in the research field pointed out in these abstracts, within 1000 characters for each item.\n
+                    Information on unresolved issues should be as comprehensive as possible. If you cannot reflect all information from the abstracts, state 'References to other unresolved issues are also found in other abstracts ([number][number][number]...)' and indicate the [number] of those abstracts.\n
+                    -
+                    -
+                    -
+                    \n
+                    ## Methods\n
+                    List and explain in detail the methods and treatments used in this research field and their effects, as pointed out in these abstracts, within 1000 characters for each item.\n
+                    Information on methods and treatments should be as comprehensive as possible. If you cannot reflect all information from the abstracts, state 'References to other methods/treatments are also found in other abstracts ([number][number][number]...)' and indicate the [number] of those abstracts.\n
+                    -
+                    -
+                    -
+                    \n
+                    ## Drugs\n
+                    List and explain in detail the drugs used in this research field and their safety and efficacy, as pointed out in these abstracts, within 1000 characters for each item.\n
+                    Information on drugs should be as comprehensive as possible. If you cannot reflect all information from the abstracts, state 'References to other drugs are also found in other abstracts ([number][number][number]...)' and indicate the [number] of those abstracts.\n
+                    -
+                    -
+                    -
+                    \n
+                    In your answer, please cite using the format [number]. If the abstract mentions OpenAccess, write it as [number OpenAccess]. Please answer in Japanese.\n
+                    Try to make your response as lengthy as possible. Now, take a deep breath and start answering.\n"""
         return prompt
+
+    if language == "日本語":
+        japanese_prompt = f"""あなたは文献レビューに取り組む研究者です。以下は文献レビューの対象として取得した学術論文のアブストラクトです。\n\n
+                            {abstracts_text}
+                            \n
+                            これらに基づいて、{query_text}についての文献レビューを作成するための以下のタスクを実行してください。
+                            {query_text}と関連しないアブストラクトは無視してください。
+                            なお、事前知識や思い込みは使用しないで、水平思考で答えてください。\n
+                            \n
+                            ## 定義\n
+                            {query_text}について1000字以内で定義してください。情報があれば人口動態や罹患率についても述べてください。\n
+                            \n
+                            ## 要約\n
+                            与えられたアブストラクトの内容を整理して、1000字以内で包括的に記述してください。
+                            原文で提示されている重要なポイントや主要なアイデアをすべてカバーすると同時に、情報を簡潔で理解しやすい形式に凝縮する必要があります。
+                            不必要な情報や繰り返しを避けながら、主要なアイデアを裏付ける関連する詳細や例を含めるようにしてください。
+                            長さは十分に長くであるべきで、重要な情報を省略することなく、明確で正確な概要を提供すること。\n
+                            \n
+                            ## 最近の発展\n
+                            この研究分野の最近の発展について（Published in）に示される出版年を参考に1000字以内で述べてください。特に5年以内の発展を重視すること。\n
+                            アブストラクトで提示されている重要なポイントや主要なアイデアをすべてカバーすると同時に、情報を簡潔で理解しやすい形式に凝縮する必要があります。
+                            不必要な情報や繰り返しを避けながら、主要なアイデアを裏付ける関連する詳細や例を含めるようにしてください。
+                            文章の長さは、十分に長くあるべきで、重要な情報を省略することなく、明確で正確な概要を提供すること。\n
+                            \n
+                            ## 未解決の問題\n
+                            これらのアブストラクトで指摘されている研究分野の未解決の問題をリストアップして、各項目について1000字以内で詳細に説明してください。\n
+                            未解決の問題に関する情報は包括的であればあるほど望ましいです。
+                            もしアブストラクトの情報をすべて反映できない場合には「他の未解決の問題についての言及も他のアブストラクトの中にあります（[number][number][number]...）」とそのアブストラクトの[number]を示して述べてください。\n
+                            -
+                            -
+                            -
+                            \n
+                            ## 手法\n
+                            これらのアブストラクトで指摘されているこの研究分野で用いられている手法や治療法とその効果をリストアップして、各項目について1000字以内で詳細に説明しtください。\n
+                            手法や治療法の情報は包括的であればあるほど望ましいです。
+                            もしアブストラクトの情報をすべて反映できない場合には「他の手法・治療法についての言及も他のアブストラクトの中にあります（[number][number][number]...）」とそのアブストラクトの[number]を示して述べてください。\n
+                            -
+                            -
+                            -
+                            \n
+                            ## 薬剤\n
+                            これらのアブストラクトで指摘されているこの研究分野で用いられている薬剤とその安全性・有効性をリストアップして、各項目について1000字以内で詳細に説明してください。\n
+                            薬剤の情報は包括的であればあるほど望ましいです。もしアブストラクトの情報をすべて反映できない場合には「他の薬剤についての言及も他のアブストラクトの中にあります（[number][number][number]...）」とそのアブストラクトの[number]を示して述べてください。\n
+                            -
+                            -
+                            -
+                            \n
+                            回答にあたっては、[number]という形式で引用を明記してください。アブストラクトにOpenAccessと明記されている場合には[number OpenAccess]と記述してください。日本語で回答してください。\n
+                            文章の分量はできるだけ多くしてください。では、深呼吸をして回答に取り組んでください。\n"""
+        return japanese_prompt
+
+    raise ValueError(f"Invalid language {language}")
+
 
 def streamlit_title_review_papers(papers, query_text, model = 'gpt-4-32k', language="English"):
     abstracts = []
@@ -555,17 +732,10 @@ def streamlit_summery_writer_with_draft(cluster_summary, draft, references, mode
     return summary, caption
 
 def japanese_abstract_generate_prompt(abstract):
-
-    json_format = "{" \
-                    " 'japanese_abstract': abstractを日本語に翻訳して出力" \
-                  "}"
-
     japanese_prompt = f"""abstract: \n\n
                 {abstract}
                 \n\n
-                指示: 上記の abstract を一切省略せずに日本語に翻訳して、以下のJSON のフォーマットで出力する。\n\n
-                JSONフォーマット: \n
-                {json_format}
+                指示: 上記の abstract を一切省略せずに日本語に翻訳して出力する。\n\n
                 """
     return japanese_prompt
 
@@ -573,14 +743,107 @@ def gpt_japanese_abstract(abstract, model = 'gpt-3.5-turbo-1106'):
     prompt = japanese_abstract_generate_prompt(abstract)
     if is_valid_tiktoken(model, prompt):
         try:
-            # print(prompt)
-            japanese_abstract = get_azure_gpt_response_json(prompt, model)['japanese_abstract']
+            result = st.sidebar.empty()
+            japanese_abstract = ""
+            for response in get_azure_gpt_response_stream(prompt, model):
+                response_text = response.choices[0].delta.content
+                if response_text:
+                    japanese_abstract += response_text
+                    result.write(japanese_abstract)
+            result.empty()
             return japanese_abstract
         except Exception as e:
             print(f"Error as {e}")
             return f"エラーが発生しました。\n{e}"
     else:
         return "アブストラクトの長さが規定の長さよりも長いため送信できませんでした。"
+
+
+def japanese_peper_interpreter_generate_prompt(abstract):
+    japanese_prompt = f"""
+            以下は学術論文の本文です。この内容に従って以下のタスクを実行してください。
+            
+            {abstract}
+            
+            タスク：この論文の内容を以下のセクションごとに包括的に記述してください。事前知識やここに書かれていない知識は用いないでください。
+            本文で提示されている重要なポイントや主要なアイデアをすべてカバーしてください。主要なアイデアを裏付ける関連する詳細や例を含めるようにしてください。
+            長さは十分に長くであるべきで、重要な情報を省略することなく、明確で正確な概要を提供すること。
+            
+            ## Title
+            
+            ## Abstract
+            
+            ## Introduction (Background)
+            
+            ## Related Works and Unsolved Problems (Research Gap)
+            
+            ## Theoretical Perspective
+            
+            ## Research Questions and Hypotheses
+            
+            ## Method
+            
+            ## Results
+            
+            ## Discussion
+            
+            ## Conclusion
+            
+            ## Application
+            
+            ## Treatments
+            
+            ## Medicine
+            
+            ## Limitation
+            
+            回答は日本語で行ってください。
+            
+            """
+    return japanese_prompt
+
+def japanese_paper_chat(abstract, chat_log, model = 'gpt-4-1106-preview'):
+    system_prompt = gpt_japanese_paper_interpreter(abstract, model)
+    messages = [{"role" : "system", "content" : system_prompt}]
+    for chat in chat_log:
+        messages.append({"role" : chat['role'], "content": chat['content']})
+
+    if is_valid_tiktoken(model, system_prompt):
+        try:
+            result = st.sidebar.empty()
+            assistant_response = ""
+            for response in get_azure_gpt_message_stream(messages, model):
+                response_text = response.choices[0].delta.content
+                if response_text:
+                    assistant_response += response_text
+                    result.write(assistant_response)
+            result.empty()
+            return assistant_response
+        except Exception as e:
+            print(f"Error as {e}")
+            return f"エラーが発生しました。\n{e}"
+    else:
+        return "論文の長さが規定の長さよりも長いため送信できませんでした。"
+
+
+def gpt_japanese_paper_interpreter(abstract, model = 'gpt-4-1106-preview'):
+    prompt = japanese_abstract_generate_prompt(abstract)
+    if is_valid_tiktoken(model, prompt):
+        try:
+            result = st.sidebar.empty()
+            japanese_abstract = ""
+            for response in get_azure_gpt_response_stream(prompt, model):
+                response_text = response.choices[0].delta.content
+                if response_text:
+                    japanese_abstract += response_text
+                    result.write(japanese_abstract)
+            result.empty()
+            return japanese_abstract
+        except Exception as e:
+            print(f"Error as {e}")
+            return f"エラーが発生しました。\n{e}"
+    else:
+        return "論文の長さが規定の長さよりも長いため送信できませんでした。"
 
 
 
@@ -1106,9 +1369,14 @@ def plot_research_front(_df_centrality, _H, _cluster_df, _cluster_id_paper_ids, 
 # PDFをダウンロードする関数
 def download_pdf(url):
     try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'}
-        response = requests.get(url, headers=headers)
+        print(f'url {url}')
+        # セッションの作成
+        session = requests.Session()
+        session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3',
+            'Referer': 'https://www.google.com/'  # リファラーを追加
+        })
+        response = session.get(url)
         print(response.status_code)
     except Exception as e:
         print(f"Error happened as {e}")

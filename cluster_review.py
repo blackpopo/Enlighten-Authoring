@@ -215,7 +215,7 @@ def generate_cluster_review_component():
         st.session_state['cluster_review_toggle'] = toggle
 
         #クラスタリングの結果のレビュー
-        selected_review_button = st.button(f"クラスタ内上位{st.session_state['number_of_cluster_review_papers']}の論文レビュー生成。(時間がかかります)", )
+        selected_review_button = st.button(f"クラスタ内上位{st.session_state['number_of_cluster_review_papers']}の論文レビュー生成。", )
 
         if selected_review_button:
             with st.spinner(f"⏳ AIによるクラスタレビューの生成中です。 お待ち下さい..."):
@@ -249,7 +249,7 @@ def display_cluster_review_component():
 
 def generate_next_cluster_review_component():
     if 'cluster_df_detail' in st.session_state and 'cluster_review_response' in st.session_state  and 'cluster_references_list' in st.session_state and 'number_of_cluster_review_papers' in st.session_state:
-        next_cluster_review_button = st.button(f"次の上位 {st.session_state['number_of_cluster_review_papers']} 件の論文によるクラスタレビュー生成。(時間がかかります)")
+        next_cluster_review_button = st.button(f"次の上位 {st.session_state['number_of_cluster_review_papers']} 件の論文によるクラスタレビュー生成。")
         if next_cluster_review_button:
             if not 'next_number_of_cluster_review_papers' in st.session_state:
                 st.session_state['next_number_of_cluster_review_papers'] = st.session_state['number_of_cluster_review_papers'] * 2

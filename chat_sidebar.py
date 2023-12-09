@@ -1,4 +1,6 @@
+import numpy as np
 import pandas as pd
+import streamlit
 
 from streamlit_utils import *
 from utils import *
@@ -27,12 +29,19 @@ def get_journal_name(journal_info):
         # 文字列が辞書として評価できない場合やキーが存在しない場合は空文字列を返します
         return "ジャーナルの情報がありません。"
 
+def apply_state_nan(open_access_info):
+    if pd.isna(open_access_info):
+        return np.nan
+
+
 def display_selected_paper_component():
     cluster_df_detail = st.session_state['cluster_df_detail'].copy()
     cluster_df_detail = cluster_df_detail.reset_index()
     cluster_df_detail['published year'] = cluster_df_detail['year'].apply(lambda x: str(x).replace('.0', ''))
     cluster_df_detail["first author"] = cluster_df_detail["authors"].apply(lambda x: x[0]['name'] if len(x) > 0 else "")
     cluster_df_detail["journal name"] = cluster_df_detail["journal"].apply(get_journal_name)
+    cluster_df_detail['open_access_pdf'] = cluster_df_detail['openAccessPdf'].apply(lambda x: get_open_access_info(x)[0] if x else np.nan)
+    cluster_df_detail['is_open_access'] = cluster_df_detail['open_access_pdf'].apply(lambda x: False if not x else True)
     # キー用の新しい列を作成
     cluster_df_detail['options'] = (cluster_df_detail.index + 1).astype(str) + " " + \
                                    cluster_df_detail['first author'].astype(str) + " (" + \
@@ -51,7 +60,7 @@ def display_selected_paper_component():
             if 'chat_' in key:
                 st.session_state.pop(key)
         st.session_state["chat_selected_paper_node"] = papers_dict[selected_paper_node]["node"]
-        st.session_state["chat_log"] = [{"role": "assistant" , "content": "論文について聞きたいことを入力してください。"}]
+        st.session_state["chat_log"] = []
 
     selected_paper = cluster_df_detail[cluster_df_detail["Node"] == st.session_state['chat_selected_paper_node']]
     st.session_state['chat_selected_paper'] = selected_paper.iloc[0]
@@ -93,39 +102,72 @@ def display_japanese_abstract_component():
             st.sidebar.write("日本語のアブストラクト")
             st.sidebar.write(st.session_state['chat_japanese_abstract'])
 
+def get_paper_interpreter_from_pdf_text(pdf_text):
+    st.session_state['chat_pdf_text'] = pdf_text
+    print(f'pdf text length {len(pdf_text)}')
+    paper_interpreter = gpt_japanese_paper_interpreter(pdf_text)
+    st.session_state['chat_log'].append({"role": "assistant", "content": paper_interpreter})
+
+def get_open_access_info(open_access_pdf):
+    if pd.isna(open_access_pdf):
+        return None, None
+    if isinstance(open_access_pdf, str):
+        try:
+            open_access_pdf = ast.literal_eval(open_access_pdf)
+            if "url" in open_access_pdf:
+                pdf_url = open_access_pdf["url"]
+                status = open_access_pdf['status']
+            else:
+                return None, None
+        except Exception as e:
+            print(f'Error in decode open access url {e}')
+            return None, None
+    else:
+        pdf_url = open_access_pdf['url']
+        status = open_access_pdf['status']
+    return pdf_url, status
 
 def display_open_access_paper_information_component():
     if 'chat_selected_paper' in st.session_state and not 'chat_pdf_text' in st.session_state:
         selected_paper = st.session_state['chat_selected_paper']
-        if selected_paper['isOpenAccess'] and pd.notna(selected_paper["openAccessPdf"]):
-            detail_button = st.sidebar.button("チャットを開始")
+        if 'chat_is_open_access' in st.session_state:
+            is_open_access = st.session_state['chat_is_open_access']
+        else:
+            is_open_access = selected_paper['isOpenAccess']
+
+        if is_open_access:
+            detail_button = st.sidebar.button("本文の要約の生成とチャットを開始")
             if detail_button:
-                pdf_url = selected_paper["openAccessPdf"]["url"]
-                pdf_path = download_pdf(pdf_url)
+                pdf_url = selected_paper['open_access_pdf']
+                if pdf_url:
+                    pdf_path = download_pdf(pdf_url)
+                else:
+                    pdf_path = None
                 if not pdf_path:
                     st.sidebar.write("Open Access の pdf が取得できませんでした。ファイルをアップロードしてください。")
-                    st.sidebar.write(selected_paper['linked_APA'], unsafe_allow_html=True)
-                    file_upload = st.sidebar.file_uploader("論文をアップロードしてください。", type=['pdf'])
-                    if  file_upload:
-                        pdf_text = extract_text_without_headers_footers_from_stream(file_upload)
-                        st.session_state['chat_pdf_text'] = pdf_text
-                    else:
-                        st.sidebar.write("ファイルがアップロードされていません。")
+                    is_open_access = False
                 else:
-                    pdf_text = extract_text_without_headers_footers(pdf_path)
-                    st.session_state['chat_pdf_text'] = pdf_text
+                    try:
+                        pdf_text = extract_text_without_headers_footers(pdf_path)
+                        st.sidebar.write("Open Access の　PDF を取得しました。本文の要約を生成します。")
+                        get_paper_interpreter_from_pdf_text(pdf_text)
+                    except Exception as e:
+                        st.sidebar.write("Open Access の pdf が取得できませんでした。ファイルをアップロードしてください。")
+                        is_open_access = False
 
-        else:
+        if not is_open_access:
             st.sidebar.write("論文の PDF のリンク")
             st.sidebar.write(selected_paper['linked_APA'], unsafe_allow_html=True)
             file_upload = st.sidebar.file_uploader("論文をアップロードしてください。", type=['pdf'])
-            detail_button = st.sidebar.button("チャットを開始")
+            detail_button = st.sidebar.button("PDF 本文の要約の生成とチャットを開始")
             if detail_button:
                 if file_upload:
                     pdf_text = extract_text_without_headers_footers_from_stream(file_upload)
-                    st.session_state['chat_pdf_text'] = pdf_text
+                    get_paper_interpreter_from_pdf_text(pdf_text)
                 else:
                     st.sidebar.write("ファイルがアップロードされていません。")
+
+        st.session_state['chat_is_open_access'] = is_open_access
 
 def display_chat_component():
     if 'chat_selected_paper' in st.session_state and 'chat_pdf_text' in st.session_state:
@@ -139,10 +181,9 @@ def display_chat_component():
         prompt_button = st.sidebar.button("送信")
         if prompt_button:
             if len(prompt) > 0:
-                st.sidebar.write(f"User has sent the following prompt: {prompt}")
                 st.session_state["chat_log"].append({"role": "user", "content" : prompt})
-                st.sidebar.write(f"ユーザーの入力内容 {prompt}")
-                gpt_response = f"テスト中のためオウム返し: {prompt}"
+                # gpt_response = f"テスト中のためオウム返し: {prompt}"
+                gpt_response = japanese_paper_chat(st.session_state['chat_pdf_text'], st.session_state['chat_log'])
                 st.session_state["chat_log"].append({"role": "assistant", "content": gpt_response})
                 st.rerun()
             else:
