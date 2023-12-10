@@ -106,6 +106,7 @@ def get_paper_interpreter_from_pdf_text(pdf_text):
     st.session_state['chat_pdf_text'] = pdf_text
     print(f'pdf text length {len(pdf_text)}')
     paper_interpreter = gpt_japanese_paper_interpreter(pdf_text)
+    # paper_interpreter = "これはテストです。"
     st.session_state['chat_log'].append({"role": "assistant", "content": paper_interpreter})
 
 def get_open_access_info(open_access_pdf):
@@ -181,14 +182,20 @@ def display_chat_component():
         prompt_button = st.sidebar.button("送信")
         if prompt_button:
             if len(prompt) > 0:
+                st.session_state['chat_is_started'] = True
                 st.session_state["chat_log"].append({"role": "user", "content" : prompt})
-                # gpt_response = f"テスト中のためオウム返し: {prompt}"
-                gpt_response = japanese_paper_chat(st.session_state['chat_pdf_text'], st.session_state['chat_log'])
-                st.session_state["chat_log"].append({"role": "assistant", "content": gpt_response})
                 st.rerun()
             else:
                 st.sidebar.write("メッセージが入力されていません。")
         # st.sidebar.write(st.session_state['chat_pdf_text'])
+
+def chat_component():
+    if 'chat_log' in st.session_state and 'chat_is_started' in st.session_state and st.session_state['chat_is_started']:
+        st.session_state['chat_is_started'] = False
+        # gpt_response = f"テスト中のためオウム返し: {prompt}"
+        gpt_response = japanese_paper_chat(st.session_state['chat_pdf_text'], st.session_state['chat_log'])
+        st.session_state["chat_log"].append({"role": "assistant", "content": gpt_response})
+        st.rerun()
 
 def chat_about_papers():
     # if not ('selected_number' in st.session_state and 'cluster_df_detail' in st.session_state):
@@ -217,3 +224,5 @@ def chat_about_papers():
     display_spaces(2)
 
     display_chat_component()
+
+    chat_component()

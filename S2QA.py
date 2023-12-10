@@ -25,13 +25,13 @@ def display_query():
     return query
 
 def app():
-    refresh_button = st.button('Refresh button')
-    if refresh_button:
-        st.rerun()
-
-    debug_mode = st.checkbox("Debug Mode", value=True)
-    if debug_mode:
-        st.session_state['debug'] = True
+    # refresh_button = st.button('Refresh button')
+    # if refresh_button:
+    #     st.rerun()
+    #
+    # debug_mode = st.checkbox("Debug Mode", value=True)
+    # if debug_mode:
+    #     st.session_state['debug'] = True
 
 
     display_query()

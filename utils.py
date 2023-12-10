@@ -759,11 +759,11 @@ def gpt_japanese_abstract(abstract, model = 'gpt-3.5-turbo-1106'):
         return "アブストラクトの長さが規定の長さよりも長いため送信できませんでした。"
 
 
-def japanese_peper_interpreter_generate_prompt(abstract):
+def japanese_peper_interpreter_generate_prompt(pdf_text):
     japanese_prompt = f"""
             以下は学術論文の本文です。この内容に従って以下のタスクを実行してください。
             
-            {abstract}
+            {pdf_text}
             
             タスク：この論文の内容を以下のセクションごとに包括的に記述してください。事前知識やここに書かれていない知識は用いないでください。
             本文で提示されている重要なポイントや主要なアイデアをすべてカバーしてください。主要なアイデアを裏付ける関連する詳細や例を含めるようにしてください。
@@ -802,22 +802,22 @@ def japanese_peper_interpreter_generate_prompt(abstract):
             """
     return japanese_prompt
 
-def japanese_paper_chat(abstract, chat_log, model = 'gpt-4-1106-preview'):
-    system_prompt = gpt_japanese_paper_interpreter(abstract, model)
+def japanese_paper_chat(pdf_text, chat_log, model = 'gpt-4-1106-preview'):
+    system_prompt = f"以下は学術論文の本文です。この内容に従って最後のユーザの質問に答えてくださいを実行してください。{pdf_text}\n\n回答は日本語で行ってください。\n\n"
     messages = [{"role" : "system", "content" : system_prompt}]
     for chat in chat_log:
         messages.append({"role" : chat['role'], "content": chat['content']})
 
     if is_valid_tiktoken(model, system_prompt):
         try:
-            result = st.sidebar.empty()
+            chat_message = st.sidebar.empty()
             assistant_response = ""
             for response in get_azure_gpt_message_stream(messages, model):
                 response_text = response.choices[0].delta.content
                 if response_text:
                     assistant_response += response_text
-                    result.write(assistant_response)
-            result.empty()
+                    chat_message.write(assistant_response)
+            chat_message.empty()
             return assistant_response
         except Exception as e:
             print(f"Error as {e}")
