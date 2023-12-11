@@ -505,6 +505,34 @@ def title_long_review_generate_prompt(abstracts, query_text, language):
 
     raise ValueError(f"Invalid language {language}")
 
+def streamlit_title_long_review_papers(papers, query_text, model = 'gpt-4-32k', language="English"):
+    abstracts = []
+    linked_apas = []
+    titles = []
+    prompts = title_long_review_generate_prompt([], query_text, language)
+    caption = f"{len(papers)} 件の論文がレビューに使用されました。"
+    for i, (title, abstract, year, link) in enumerate(zip(papers["title"], papers["abstract"], papers['year'], papers['linked_APA']), 1):
+        text = f"[{i}] (Published in {year}) {title}\n{abstract}"
+        abstracts.append(text)
+        linked_apas.append(f"[{i}] : {link}")
+        titles.append(f"[{i}] : {title}\n{abstract}")
+
+        prompts = title_long_review_generate_prompt(abstracts, query_text, language)
+        for prompt in prompts:
+            if not is_valid_tiktoken(model, prompt):
+                prompt = title_long_review_generate_prompt(abstracts[:-1], query_text, language)
+                caption = f"{i - 1} / {len(papers)} 件の論文がレビューに使用されました。"
+                break
+    result = st.empty()
+    cluster_summary = ""
+    for prompt in prompts:
+        for response in get_azure_gpt_response_stream(prompt, model):
+            response_text = response.choices[0].delta.content
+            if response_text:
+                cluster_summary += response_text
+                result.write(cluster_summary)
+    result.empty()
+    return cluster_summary, linked_apas, caption, titles
 
 def title_review_generate_prompt(abstracts, query_text, language):
     abstracts_text = "\n\n".join(abstracts)

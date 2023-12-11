@@ -111,26 +111,6 @@ def display_cluster_component():
         st.session_state['cluster_candidates'] = cluster_candidates
         st.session_state['cluster_keywords'] = display_clusters['ClusterKeywords'].values
 
-        # for cluster_number in display_clusters.index:
-        #     selected_paper_ids = st.session_state['cluster_id_to_paper_ids'][cluster_number]
-        #     extracted_df = st.session_state['papers_df'][st.session_state['papers_df']['paperId'].isin(selected_paper_ids)]
-        #     display_clusters.loc[cluster_number, 'netNumberOfNodes'] = len(extracted_df)
-        #
-        # rename_columns = {
-        #         'Node': "文献数",
-        #         "Year": "平均年",
-        #         'Recent5YearsCount' : "直近5年の文献数",
-        #         # "ClusterKeySentence": "クラスタの説明",
-        #         "ClusterKeywords": "キーワード",
-        #         # "CitationCount" : "引用年の中央値"
-        #
-        #     }
-        # display_clusters.index.name = "クラスタ番号"
-        # display_clusters.rename(columns= rename_columns, inplace=True)
-        #
-        # display_spaces(2)
-        # display_dataframe(display_clusters, f'クラスタに含まれる文献数とキーワード', len(display_clusters), list(rename_columns.values()))
-
         with st.spinner("⏳ クラスターの時間的な発展を描画中です。お待ち下さい。"):
             _cluster_id_to_papers = st.session_state['cluster_id_to_paper_ids'].copy()
             del _cluster_id_to_papers['all papers']
@@ -216,6 +196,9 @@ def generate_cluster_review_component():
         toggle = display_language_toggle(f"クラスタレビュー生成")
         st.session_state['cluster_review_toggle'] = toggle
 
+        cluster_review_type = display_review_type_toggle("クラスタレビュー生成")
+        st.session_state['cluster_review_type'] = cluster_review_type
+
         #クラスタリングの結果のレビュー
         selected_review_button = st.button(f"クラスタ内上位{st.session_state['number_of_cluster_review_papers']}の論文レビュー生成。", )
 
@@ -224,8 +207,15 @@ def generate_cluster_review_component():
                 selected_cluster_paper_ids = cluster_df_detail['Node'].values.tolist()[:st.session_state['number_of_cluster_review_papers']]
                 result_list, result_dict = get_papers_from_ids(selected_cluster_paper_ids)
                 selected_papers = set_paper_information(pd.DataFrame(result_dict))
-                cluster_response, reference_links, caption, draft_references = streamlit_title_review_papers(selected_papers, st.session_state['query'], model = 'gpt-4-1106-preview', language=toggle)
 
+                if st.session_state['cluster_review_type'] == '通常':
+                    cluster_response, reference_links, caption, draft_references = streamlit_title_review_papers(selected_papers, st.session_state['query'], model='gpt-4-1106-preview',
+                                                                                               language=st.session_state['cluster_review_toggle'])
+                elif st.session_state['cluster_review_type'] == '長文':
+                    cluster_response, reference_links, caption, draft_references = streamlit_title_long_review_papers(selected_papers, st.session_state['query'], model='gpt-4-1106-preview',
+                                                                                               language=st.session_state['cluster_review_toggle'])
+                else:
+                    raise ValueError(f"Invalid Review Type {st.session_state['cluster_review_type']}")
                 display_description(caption)
                 display_spaces(1)
                 st.session_state['cluster_review_response'] = cluster_response
@@ -269,8 +259,16 @@ def generate_next_cluster_review_component():
                 result_list, result_dict = get_papers_from_ids(selected_cluster_paper_ids)
                 selected_papers = set_paper_information(pd.DataFrame(result_dict))
 
-                response, links, caption, draft_references = streamlit_title_review_papers(selected_papers,
-                    st.session_state['query'], model='gpt-4-1106-preview', language=st.session_state['cluster_review_toggle'] )
+                if st.session_state['cluster_review_type'] == '通常':
+                    response, links, caption, draft_references = streamlit_title_review_papers(selected_papers, st.session_state['query'], model='gpt-4-1106-preview',
+                                                                                               language=st.session_state['cluster_review_toggle'])
+                elif st.session_state['cluster_review_type'] == '長文':
+                    response, links, caption, draft_references = streamlit_title_long_review_papers(selected_papers, st.session_state['query'], model='gpt-4-1106-preview',
+                                                                                               language=st.session_state['cluster_review_toggle'])
+                else:
+                    raise ValueError(f"Invalid Review Type {st.session_state['cluster_review_type']}")
+
+
                 st.session_state['cluster_review_response'] = response
                 st.session_state['cluster_review_caption'] = f"{button_title}の論文による" + caption
 

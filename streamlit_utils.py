@@ -140,6 +140,13 @@ def display_language_toggle(unique_string):
     )
     return toggle
 
+def display_review_type_toggle(unique_string):
+    toggle = st.radio(
+        f"{unique_string}の文章量を選択してください。",
+        [ '通常', '長文']
+    )
+    return toggle
+
 def display_draft_evidence_toggle(unique_string):
     toggle = st.radio(
         f"{unique_string}でエビデンスを付与する方法を選択してください。",
