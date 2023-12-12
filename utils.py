@@ -520,7 +520,7 @@ def streamlit_title_long_review_papers(papers, query_text, model = 'gpt-4-32k', 
         prompts = title_long_review_generate_prompt(abstracts, query_text, language)
         for prompt in prompts:
             if not is_valid_tiktoken(model, prompt):
-                prompt = title_long_review_generate_prompt(abstracts[:-1], query_text, language)
+                prompts = title_long_review_generate_prompt(abstracts[:-1], query_text, language)
                 caption = f"{i - 1} / {len(papers)} 件の論文がレビューに使用されました。"
                 break
     result = st.empty()
@@ -831,7 +831,7 @@ def japanese_peper_interpreter_generate_prompt(pdf_text):
     return japanese_prompt
 
 def japanese_paper_chat(pdf_text, chat_log, model = 'gpt-4-1106-preview'):
-    system_prompt = f"以下は学術論文の本文です。この内容に従って最後のユーザの質問に答えてくださいを実行してください。{pdf_text}\n\n回答は日本語で行ってください。\n\n"
+    system_prompt = f"以下は学術論文の本文です。この内容に従って最後のユーザの質問に答えてください。{pdf_text}\n\n回答は日本語で行ってください。\n\n"
     messages = [{"role" : "system", "content" : system_prompt}]
     for chat in chat_log:
         messages.append({"role" : chat['role'], "content": chat['content']})
@@ -855,7 +855,7 @@ def japanese_paper_chat(pdf_text, chat_log, model = 'gpt-4-1106-preview'):
 
 
 def gpt_japanese_paper_interpreter(abstract, model = 'gpt-4-1106-preview'):
-    prompt = japanese_abstract_generate_prompt(abstract)
+    prompt = japanese_peper_interpreter_generate_prompt(abstract)
     if is_valid_tiktoken(model, prompt):
         try:
             result = st.sidebar.empty()
