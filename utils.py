@@ -434,36 +434,35 @@ def title_long_review_generate_prompt(abstracts, query_text, language):
         long_templates = []
 
         templates_header = f"""
-            あなたは文献レビューに取り組む研究者です。以下は文献レビューの対象となる学術論文のアブストラクトです。\n\n
-            {abstracts_text}\n\n
-            これらに基づいて、{query_text}についての文献レビューを作成するための以下のタスクを実行してください。なお、事前知識や思い込みは使用しないで、水平思考で答えてください。\n
-            以下の「## 」で記された項目について指示通りに述べなさい。
-            \n
+        あなたは文献レビューに取り組む研究者です。以下は文献レビューの対象となる学術論文のアブストラクトです。\n\n
+        {abstracts_text}
+        \n\n
+        これらに基づいて、{query_text}についての文献レビューを作成するための以下のタスクを実行してください。なお、事前知識や思い込みは使用しないで、水平思考で答えてください。\n
+        オーディエンスとしては、詳細な解析のための情報を必要とする研究者を想定してください。\n
+        以下の「## 」で記された項目について指示通りに述べなさい。
+        \n
         """
 
         long_templates.append(templates_header + f"""
         {query_text}について1000字以内で定義してください。情報があれば人口動態や罹患率についても述べてください。\n
-        回答にあたっては、[number]という形式で引用を明記してください。アブストラクトにOpenAccessと明記されている場合には[number OpenAccess]と記述してください。日本語で回答してください。\n
+        回答にあたっては、[number]という形式で引用を明記してください。日本語で回答してください。\n
         文章の分量はできるだけ多くしてください。では、深呼吸をして回答に取り組んでください。\n
         \n
-        ## 定義\n
         """)
 
         long_templates.append(templates_header + """
         与えられたアブストラクトの内容を整理して、1000字以内で包括的に記述してください。原文で提示されている重要なポイントや主要なアイデアをすべてカバーすると同時に、情報を簡潔で理解しやすい形式に凝縮する必要があります。不必要な情報や繰り返しを避けながら、主要なアイデアを裏付ける関連する詳細や例を含めるようにしてください。長さは十分に長くであるべきで、重要な情報を省略することなく、明確で正確な概要を提供すること。\n
-        回答にあたっては、[number]という形式で引用を明記してください。アブストラクトにOpenAccessと明記されている場合には[number OpenAccess]と記述してください。日本語で回答してください。\n
+        回答にあたっては、[number]という形式で引用を明記してください。日本語で回答してください。\n
         文章の分量はできるだけ多くしてください。では、深呼吸をして回答に取り組んでください。\n
         \n
-        ## 要約\n
         """)
 
         long_templates.append(templates_header + """
         この研究分野の最近の発展について（Published in）に示される出版年を参考に1000字以内で述べてください。特に5年以内の発展を重視すること。\n
         アブストラクトで提示されている重要なポイントや主要なアイデアをすべてカバーすると同時に、情報を簡潔で理解しやすい形式に凝縮する必要があります。不必要な情報や繰り返しを避けながら、主要なアイデアを裏付ける関連する詳細や例を含めるようにしてください。文章の長さは、十分に長くあるべきで、重要な情報を省略することなく、明確で正確な概要を提供すること。\n
-        回答にあたっては、[number]という形式で引用を明記してください。アブストラクトにOpenAccessと明記されている場合には[number OpenAccess]と記述してください。日本語で回答してください。\n
+        回答にあたっては、[number]という形式で引用を明記してください。日本語で回答してください。\n
         文章の分量はできるだけ多くしてください。では、深呼吸をして回答に取り組んでください。\n
         \n
-        ## 最近の発展\n
         """)
 
         long_templates.append(templates_header + """
@@ -472,10 +471,9 @@ def title_long_review_generate_prompt(abstracts, query_text, language):
         -
         -
         -
-        回答にあたっては、[number]という形式で引用を明記してください。アブストラクトにOpenAccessと明記されている場合には[number OpenAccess]と記述してください。日本語で回答してください。\n
+        回答にあたっては、[number]という形式で引用を明記してください。日本語で回答してください。\n
         文章の分量はできるだけ多くしてください。では、深呼吸をして回答に取り組んでください。\n
         \n
-        ## 未解決の問題\n
         """)
 
         long_templates.append(templates_header + """
@@ -484,10 +482,9 @@ def title_long_review_generate_prompt(abstracts, query_text, language):
         -
         -
         -
-        回答にあたっては、[number]という形式で引用を明記してください。アブストラクトにOpenAccessと明記されている場合には[number OpenAccess]と記述してください。日本語で回答してください。\n
+        回答にあたっては、[number]という形式で引用を明記してください。日本語で回答してください。\n
         文章の分量はできるだけ多くしてください。では、深呼吸をして回答に取り組んでください。\n
         \n
-        ## 手法\n
         """)
 
         long_templates.append(templates_header + """
@@ -496,10 +493,9 @@ def title_long_review_generate_prompt(abstracts, query_text, language):
         -
         -
         -
-        回答にあたっては、[number]という形式で引用を明記してください。アブストラクトにOpenAccessと明記されている場合には[number OpenAccess]と記述してください。日本語で回答してください。\n
+        回答にあたっては、[number]という形式で引用を明記してください。日本語で回答してください。\n
         文章の分量はできるだけ多くしてください。では、深呼吸をして回答に取り組んでください。\n
         \n
-        ## 薬剤\n
         """)
         return long_templates
 
@@ -525,7 +521,15 @@ def streamlit_title_long_review_papers(papers, query_text, model = 'gpt-4-32k', 
                 break
     result = st.empty()
     cluster_summary = ""
-    for prompt in prompts:
+    if language == '日本語':
+        sections = ['## 定義', '## 要約', '## 最近の発展', '## 未解決の問題', '## 手法', '## 薬剤']
+    elif language == 'English':
+        sections = ['## Definition', '## Summary', '## Recent Developments', '## Outstanding Issues', '## Methods', '## Drugs']
+    else:
+        raise ValueError(f'Invalid language {language}')
+    for section, prompt in zip(sections, prompts):
+        cluster_summary += section + '\n\n'
+        result.write(section + '\n\n')
         for response in get_azure_gpt_response_stream(prompt, model):
             response_text = response.choices[0].delta.content
             if response_text:
@@ -1396,15 +1400,14 @@ def plot_research_front(_df_centrality, _H, _cluster_df, _cluster_id_paper_ids, 
 # PDFをダウンロードする関数
 def download_pdf(url):
     try:
-        print(f'url {url}')
-        # セッションの作成
-        session = requests.Session()
-        session.headers.update({
+        headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3',
-            'Referer': 'https://www.google.com/'  # リファラーを追加
-        })
-        response = session.get(url)
-        print(response.status_code)
+            'referer': 'https://www.google.com/',
+            'Accept': 'application/pdf',
+        }
+
+        response = requests.get(url, headers= headers)
+
     except Exception as e:
         print(f"Error happened as {e}")
         return None
