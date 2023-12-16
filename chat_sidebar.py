@@ -6,18 +6,17 @@ from streamlit_utils import *
 from utils import *
 
 def set_sidebar_width():
-    # サイドバーの幅設定
     st.markdown(
         """
-       <style>
-       [data-testid="stSidebar"][aria-expanded="true"]{
-           min-width: 600px;
-           max-width: 600px;
-       }
-       """,
+        <style>
+        [data-testid="stSidebar"][aria-expanded="true"] {
+            min-width: 33.33%;
+            max-width: 33.33%;
+        }
+        </style>
+        """,
         unsafe_allow_html=True,
     )
-    pass
 
 def get_journal_name(journal_info):
     try:
@@ -70,15 +69,15 @@ def display_paper_basic_information_component():
         paper = st.session_state['chat_selected_paper']
         # 論文の基本情報を整理して表示
         if not paper.empty:
-            st.sidebar.write("論文タイトル:", paper['Title'])
+            # st.sidebar.write("論文タイトル:", paper['Title'])
+            st.sidebar.write("論文タイトル" , f'<a href="https://www.semanticscholar.org/paper/{paper["paperId"]}" target="_blank">{paper["title"]}</a>', unsafe_allow_html=True)
             st.sidebar.write("著者:", paper['authors'][0]['name'] if len(paper['authors']) > 0 else "")
-            with st.sidebar.expander("詳細情報", expanded=False):
-                st.sidebar.write("出版年:", paper['published year'])
-                st.sidebar.write("引用数:", str(paper['CitationCount']))
-                st.sidebar.write("クラスタ:", paper['Cluster'])
-                st.sidebar.write("アブストラクト:", paper['abstract'] if pd.notna(paper['abstract']) else "アブストラクトがありません。")
-                st.sidebar.write("ジャーナル:", paper['journal name'])
-                st.sidebar.write("オープンアクセス:", "はい" if paper['isOpenAccess'] else "いいえ")
+            st.sidebar.write("出版年:", paper['published year'])
+            st.sidebar.write("引用数:", str(paper['CitationCount']))
+            st.sidebar.write("クラスタ:", paper['Cluster'])
+            st.sidebar.write("アブストラクト:", paper['abstract'] if pd.notna(paper['abstract']) else "アブストラクトがありません。")
+            st.sidebar.write("ジャーナル:", paper['journal name'])
+            st.sidebar.write("オープンアクセス:", "はい" if paper['isOpenAccess'] else "いいえ")
             # 必要に応じて他の情報も表示
         else:
             st.sidebar.write("選択された論文の情報が見つかりません。")
@@ -145,22 +144,22 @@ def display_open_access_paper_information_component():
                 else:
                     pdf_path = None
                 if not pdf_path:
-                    st.sidebar.write("Open Access の pdf が取得できませんでした。ファイルをアップロードしてください。")
+                    st.sidebar.write("Open Access のPDFが取得できませんでした。ファイルをアップロードしてください。")
                     is_open_access = False
                 else:
                     try:
                         pdf_text = extract_text_without_headers_footers(pdf_path)
-                        st.sidebar.write("Open Access の　PDF を取得しました。本文の要約を生成します。")
+                        st.sidebar.write("Open Access のPDFを取得しました。本文の要約を生成します。")
                         get_paper_interpreter_from_pdf_text(pdf_text)
                     except Exception as e:
-                        st.sidebar.write("Open Access の pdf が取得できませんでした。ファイルをアップロードしてください。")
+                        st.sidebar.write("Open Access のPDFが取得できませんでした。ファイルをアップロードしてください。")
                         is_open_access = False
 
         if not is_open_access:
             st.sidebar.write("論文の PDF のリンク")
             st.sidebar.write(selected_paper['linked_APA'], unsafe_allow_html=True)
             file_upload = st.sidebar.file_uploader("論文をアップロードしてください。", type=['pdf'])
-            detail_button = st.sidebar.button("PDF 本文の要約の生成とチャットを開始")
+            detail_button = st.sidebar.button("PDF本文の要約の生成とチャットを開始")
             if detail_button:
                 if file_upload:
                     pdf_text = extract_text_without_headers_footers_from_stream(file_upload)
@@ -172,18 +171,23 @@ def display_open_access_paper_information_component():
 
 def display_chat_component():
     if 'chat_selected_paper' in st.session_state and 'chat_pdf_text' in st.session_state:
+
         #chat の履歴の表示
         for chat in st.session_state["chat_log"]:
             message = st.sidebar.chat_message(chat["role"])
             message.write(chat["content"])
 
-        #chat の入力部分
-        prompt = st.sidebar.text_input("論文について聞きたいことを入力してください。")
+        if 'chat_is_started' in st.session_state and st.session_state['chat_is_started']:
+            return
+
+
+        prompt = st.sidebar.text_input("論文について聞きたいことを入力してください。", key="chat_input", value="")
         prompt_button = st.sidebar.button("送信")
         if prompt_button:
             if len(prompt) > 0:
                 st.session_state['chat_is_started'] = True
-                st.session_state["chat_log"].append({"role": "user", "content" : prompt})
+                st.session_state["chat_log"].append({"role": "user", "content": prompt})
+                st.session_state["chat_input"] = ""  # これでテキスト入力欄をリセット
                 st.rerun()
             else:
                 st.sidebar.write("メッセージが入力されていません。")

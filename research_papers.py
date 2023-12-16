@@ -24,7 +24,7 @@ def research_papers():
                 display_description(f"{query} を検索中です。\n")
                 #Semantic Scholar による論文の保存
                 #良い論文の100件の取得, yearの0は検索用の文字列
-                papers, total = get_papers(st.empty(), query, st.session_state['year'][0], limit=20, total_limit=total_limit)
+                papers, total = get_papers(st.empty(), query, st.session_state['year'][0], limit=100, total_limit=total_limit)
                 # config への保存
                 st.session_state['papers'] = papers
                 if len(st.session_state['papers']) > 0:
@@ -54,7 +54,7 @@ def research_papers():
         #検索からの結果かデータベースに保存していた結果であることの表示
         if total:
             display_description(f"Semantic Scholar からの検索が完了しました。")
-            display_description(f"{len(st.session_state['papers_df'])} 件の論文とその参考文献{len(st.session_state['all_papers_df'])}件の論文を取得しました。({total}件中)")
+            display_description(f"{len(st.session_state['papers_df'])} 件の論文とその参考文献{len(st.session_state['all_papers_df'])}件の論文を取得しました。")
         else:
             display_description(f"データベースに保存されていた検索結果の読み込みが完了しました。")
             display_description(f"{len(st.session_state['papers_df'])} 件の論文とその参考文献{len(st.session_state['all_papers_df'])}件の論文を取得しました。")

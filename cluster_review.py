@@ -10,8 +10,10 @@ def construct_graph_component():
         display_description("文献の引用関係に基づいてクラスタリングすることで、より関心に近いレビューを生成することができます")
         display_spaces(1)
 
+        citation_threshold = display_citation_threshold_toggle()
+
         with st.spinner("⏳ コミュニティグラフの構築中です..."):
-            H, G = construct_direct_quotation_and_scrivener_combination(st.session_state['papers_df'], st.session_state['year'][3])
+            H, G = construct_direct_quotation_and_scrivener_combination(st.session_state['papers_df'], st.session_state['year'][3], citation_threshold)
             st.session_state['G'] = G
             st.session_state['H'] = H
 
@@ -20,14 +22,14 @@ def construct_graph_component():
 
 
         if len(H.nodes) == 0:
-            display_error("グラフの構築に失敗しました。申し訳ございませんが、Semantic Scholar の検索内容を変更して再検索してください。")
+            display_error("グラフの構築に失敗しました申し訳ございませんが、Semantic Scholar の検索内容を変更して再検索してください")
             st.session_state.pop('H')
             #グラフの構築に失敗した場合はここで停止する
             st.stop()
             
 # @st.cache_data
 def add_all_row(_cluster_df):
-    # 既存の _cluster_df DataFrameを使用して計算を行います。
+    # 既存の _cluster_df DataFrameを使用して計算を行います
     # 各列の適切な値を計算
     total_node = _cluster_df['Node'].sum()
     total_recent5years_count = _cluster_df['Recent5YearsCount'].sum()
@@ -82,11 +84,8 @@ def setup_cluster_df(df_centrality):
 def construct_cluster_component():
     if 'H' in st.session_state and 'cluster_df' not in st.session_state:
         with st.spinner(f"⏳ 論文のクラスタリング中です..."):
-            # cluster_counts, partition, clustering_result = community_clustering(st.session_state['H'])
             #ページランクによる全体のソートアルゴリズム
             df_centrality = page_ranking_sort(st.session_state['H'], st.session_state['year'][1], st.session_state['year'][2], st.session_state['year'][3])
-            # すでに作成されている中心性のデータフレーム（df_centrality）に結合
-            # df_centrality['Cluster'] = df_centrality['Node'].map(clustering_result)
             #クラスターごとの keyword を作成
             st.session_state['partition'] = df_centrality.set_index('Node')['Cluster'].to_dict()
             cluster_id_paper_ids = df_centrality.groupby('Cluster')['Node'].apply(list).to_dict()
@@ -104,36 +103,32 @@ def construct_cluster_component():
 
 def display_cluster_component():
     if 'cluster_df' in st.session_state.keys():
-        display_clusters = st.session_state['cluster_df'][st.session_state['cluster_df']['Node'] > 10]
-        # display_clusters = display_clusters.sort_values('Node', ascending=False)
+        display_clusters = st.session_state['cluster_df'].copy()
         cluster_candidates = display_clusters.index.tolist()
         #あとで使用する情報の保存
         st.session_state['cluster_candidates'] = cluster_candidates
         st.session_state['cluster_keywords'] = display_clusters['ClusterKeywords'].values
 
-        with st.spinner("⏳ クラスターの時間的な発展を描画中です。お待ち下さい。"):
+        with st.spinner("⏳ クラスターの時間的な発展を描画中ですお待ち下さい"):
             _cluster_id_to_papers = st.session_state['cluster_id_to_paper_ids'].copy()
             del _cluster_id_to_papers['all papers']
             plot_research_front(st.session_state['df_centrality'],  st.session_state['H'],
                                 st.session_state['cluster_df'].copy().drop("all papers"), _cluster_id_to_papers,
                                 st.session_state['partition'])
 
-
-
-
 def display_each_cluster_component():
     if 'cluster_candidates' in st.session_state and 'H' in st.session_state and 'G' in st.session_state and 'cluster_id_to_paper_ids' in st.session_state and len(st.session_state['cluster_candidates']) > 0:
         assert len(st.session_state['cluster_candidates']) == len(st.session_state['cluster_keywords']), f"{len(st.session_state['cluster_candidates'])} : {len(st.session_state['cluster_keywords'])}"
         detailed_cluster_dict = {f'{cluster_number} : {cluster_keyword}' : cluster_number for cluster_number, cluster_keyword in zip(st.session_state['cluster_candidates'] , st.session_state['cluster_keywords'])}
-        selected_number_key = st.selectbox('詳細を表示するクラスタ番号を選んでください。', detailed_cluster_dict.keys())
+        selected_number_key = st.selectbox('詳細を表示するクラスタ番号を選んでください', detailed_cluster_dict.keys())
         display_spaces(2)
         #選択した番号で考える
         selected_number = detailed_cluster_dict[selected_number_key]
         st.session_state['selected_number'] = selected_number
 
         #ソートする順番の設定
-        st.write("##### クラスター内の論文の並べ替え方を選択してください。")
-        cluster_sort = st.radio("クラスター内の論文の並べ替え方を選択してください。", ['重要度', '出版年'], index=0, label_visibility='hidden')
+        st.write("##### クラスター内の論文の並べ替え方を選択してください")
+        cluster_sort = st.radio("クラスター内の論文の並べ替え方を選択してください", ['重要度', '出版年'], index=0, label_visibility='hidden')
         if 'cluster_sort' in st.session_state and st.session_state['cluster_sort'] != cluster_sort:
             st.session_state['cluster_sort'] = cluster_sort
             st.rerun()
@@ -164,7 +159,7 @@ def display_each_cluster_component():
             display_cluster_dataframe(temp_cluster_df_detail, f'クラスタ番号 {selected_number} 内での検索結果上位 20 件', 20)
 
         # クラスターのレビュー生成
-        number_of_papers = st.slider( f"クラスタレビューに使用する論文数を選択してください。", min_value=1,
+        number_of_papers = st.slider( f"クラスタレビューに使用する論文数を選択してください", min_value=1,
                 value=min(len(cluster_df_detail), 20),  max_value=min(100, len(cluster_df_detail)), step=1)
 
         if 'number_of_cluster_review_papers' in st.session_state and st.session_state['number_of_cluster_review_papers'] != number_of_papers:
@@ -172,8 +167,11 @@ def display_each_cluster_component():
             st.rerun()
         else:
             st.session_state['number_of_cluster_review_papers'] = number_of_papers
+
+        # All year のみクラスタの年情報を表示する
         #クラスタの年情報の追加
-        display_cluster_years(temp_cluster_df_detail)
+        if st.session_state['selected_number'] == 'all papers':
+            display_cluster_years(temp_cluster_df_detail)
 
         #streamlit にクラスタの情報を保存
         if st.session_state['cluster_sort'] == "重要度":
@@ -186,12 +184,10 @@ def display_each_cluster_component():
         st.session_state['cluster_df_detail'] = matched_papers_df
 
 
-def generate_cluster_review_component():
+def configure_cluster_review_component():
     if 'selected_number' in st.session_state and 'cluster_df_detail' in st.session_state and 'query' in st.session_state:
         display_spaces(2)
         display_description(f'AI クラスタレビュー生成', size=2)
-
-        cluster_df_detail = st.session_state['cluster_df_detail']
 
         toggle = display_language_toggle(f"クラスタレビュー生成")
         st.session_state['cluster_review_toggle'] = toggle
@@ -200,103 +196,106 @@ def generate_cluster_review_component():
         st.session_state['cluster_review_type'] = cluster_review_type
 
         #クラスタリングの結果のレビュー
-        selected_review_button = st.button(f"クラスタ内上位{st.session_state['number_of_cluster_review_papers']}の論文レビュー生成。", )
+        selected_review_button = st.button(f"クラスタ内上位{st.session_state['number_of_cluster_review_papers']} 件の論文レビュー生成", )
 
         if selected_review_button:
-            with st.spinner(f"⏳ AIによるクラスタレビューの生成中です。 お待ち下さい..."):
-                selected_cluster_paper_ids = cluster_df_detail['Node'].values.tolist()[:st.session_state['number_of_cluster_review_papers']]
-                result_list, result_dict = get_papers_from_ids(selected_cluster_paper_ids)
-                selected_papers = set_paper_information(pd.DataFrame(result_dict))
+            st.session_state['start_cluster_review'] = True
+            st.session_state['cluster_start_index'] = 0
+            st.session_state['cluster_review_response_list'] = []
+            st.session_state['cluster_review_caption_list'] = []
+            st.session_state['cluster_references_list_list'] = []
+            st.session_state['cluster_draft_references_list_list'] = []
 
-                if st.session_state['cluster_review_type'] == '通常':
-                    cluster_response, reference_links, caption, draft_references = streamlit_title_review_papers(selected_papers, st.session_state['query'], model='gpt-4-1106-preview',
-                                                                                               language=st.session_state['cluster_review_toggle'])
-                elif st.session_state['cluster_review_type'] == '長文':
-                    cluster_response, reference_links, caption, draft_references = streamlit_title_long_review_papers(selected_papers, st.session_state['query'], model='gpt-4-1106-preview',
-                                                                                               language=st.session_state['cluster_review_toggle'])
-                else:
-                    raise ValueError(f"Invalid Review Type {st.session_state['cluster_review_type']}")
-                display_description(caption)
-                display_spaces(1)
-                st.session_state['cluster_review_response'] = cluster_response
-                st.session_state['cluster_review_caption'] = f"クラスタ内上位{caption}"
-
-            #response に含まれている Referenceの表示
-                reference_indices = extract_reference_indices(cluster_response)
-                references_list = [reference_text for i, reference_text in enumerate(reference_links) if i in reference_indices]
-                draft_references_list = [reference_text for i, reference_text in enumerate(draft_references) if i in reference_indices]
-                st.session_state['cluster_references_list'] = references_list
-                st.session_state['cluster_draft_references_list'] = draft_references_list
-                st.rerun()
 
 def display_cluster_review_component():
-    if 'cluster_review_response' in st.session_state and 'cluster_references_list' in st.session_state  and 'selected_number' in st.session_state:
-        display_description(st.session_state['cluster_review_caption'], size=5)
-        display_spaces(1)
-        st.markdown(st.session_state['cluster_review_response'], unsafe_allow_html=True)
+    if 'cluster_review_response_list' in st.session_state and 'cluster_references_list_list' in st.session_state  and 'cluster_review_caption_list' in st.session_state and 'cluster_draft_references_list' in st.session_state:
+        assert len(st.session_state['cluster_review_response_list']) == len(st.session_state['cluster_review_caption_list'])\
+                                                                == len(st.session_state['cluster_references_list_list']) \
+                                                                == len(st.session_state['cluster_draft_references_list_list'])
 
-        if len(st.session_state['cluster_references_list']) > 0:
-            display_description('参考文献リスト', size=6)
-            display_references_list(st.session_state['cluster_references_list'])
+        for cluster_review_caption, cluster_review_response, cluster_references_list in zip(st.session_state['cluster_review_caption_list'],
+                                                                                            st.session_state['cluster_review_response_list'], st.session_state['cluster_references_list_list']):
+            display_description(cluster_review_caption, size=5)
+            display_spaces(1)
+            st.markdown(cluster_review_response, unsafe_allow_html=True)
 
-def generate_next_cluster_review_component():
-    if 'cluster_df_detail' in st.session_state and 'cluster_review_response' in st.session_state  and 'cluster_references_list' in st.session_state and 'number_of_cluster_review_papers' in st.session_state:
-        next_cluster_review_button = st.button(f"次の上位 {st.session_state['number_of_cluster_review_papers']} 件の論文によるクラスタレビュー生成。")
+            if len(cluster_references_list) > 0:
+                display_description('参考文献リスト', size=6)
+                display_references_list(cluster_references_list)
+
+def display_next_cluster_review_component():
+    if 'cluster_review_response_list' in st.session_state and 'cluster_references_list_list' in st.session_state  and 'cluster_review_caption_list' in st.session_state and 'cluster_draft_references_list' in st.session_state:
+        next_cluster_review_button = st.button(
+            f"次の上位 {st.session_state['number_of_cluster_review_papers']} 件の論文によるクラスタレビュー生成")
         if next_cluster_review_button:
-            if not 'next_number_of_cluster_review_papers' in st.session_state:
-                st.session_state['next_number_of_cluster_review_papers'] = st.session_state['number_of_cluster_review_papers'] * 2
-            elif ('next_number_of_cluster_review_papers' in st.session_state) and (
-                    st.session_state['next_number_of_cluster_review_papers'] < len(st.session_state['cluster_df_detail'])):
-                st.session_state['next_number_of_cluster_review_papers'] = st.session_state['number_of_cluster_review_papers'] + \
-                                                                   st.session_state['next_number_of_cluster_review_papers']
+            st.session_state['cluster_start_index'] += 1
+            st.session_state['start_cluster_review'] = True
+
+def generate_cluster_review_component():
+    cluster_df_detail = st.session_state['cluster_df_detail']
+    if 'start_cluster_review' in st.session_state and st.session_state['start_cluster_review']:
+        st.session_state['start_cluster_review'] = False
+        start_index = st.session_state['number_of_cluster_review_papers'] * st.session_state['cluster_start_index']
+        end_index = st.session_state['number_of_cluster_review_papers'] * (st.session_state['cluster_start_index'] + 1)
+        last_index = min(end_index, len(cluster_df_detail))
+        if start_index >= len(cluster_df_detail):
+            st.write("### 当該クラスタ内でのAI によるクラスタレビューはこれ以上生成できません．")
+            return
+
+        with st.spinner(f"⏳ AIによるクラスタレビューの生成中です お待ち下さい..."):
+            selected_cluster_paper_ids = cluster_df_detail['Node'].values.tolist()[start_index: end_index]
+            result_list, result_dict = get_papers_from_ids(selected_cluster_paper_ids)
+            selected_papers = set_paper_information(pd.DataFrame(result_dict))
+
+            if st.session_state['cluster_review_type'] == '通常':
+                cluster_response, reference_links, caption, draft_references = streamlit_title_review_papers(
+                    selected_papers, st.session_state['query'], model='gpt-4-1106-preview',
+                    language=st.session_state['cluster_review_toggle'])
+            elif st.session_state['cluster_review_type'] == '長文':
+                cluster_response, reference_links, caption, draft_references = streamlit_title_long_review_papers(
+                    selected_papers, st.session_state['query'], model='gpt-4-1106-preview',
+                    language=st.session_state['cluster_review_toggle'])
             else:
-                st.session_state['next_number_of_cluster_review_papers'] = st.session_state['number_of_cluster_review_papers']
+                raise ValueError(f"Invalid Review Type {st.session_state['cluster_review_type']}")
+            display_description(caption)
+            display_spaces(1)
+            st.session_state['cluster_review_response'] = cluster_response
+            st.session_state['cluster_review_caption'] = f"クラスタ内上位{start_index + 1} ~ {last_index}件"
 
-            button_title = f"クラスタ内上位 {st.session_state['next_number_of_cluster_review_papers'] - st.session_state['number_of_cluster_review_papers'] + 1} 件目から {min(st.session_state['next_number_of_cluster_review_papers'], len(st.session_state['cluster_df_detail']))} 件目"
+            st.session_state['cluster_review_response_list'].append(cluster_response)
+            st.session_state['cluster_review_caption_list'].append(f"クラスタ内上位{start_index + 1} ~ {last_index}件")
 
-            with st.spinner(f"⏳ {button_title} の論文を使用した AI によるクラスタレビューの生成中です。 お待ち下さい..."):
-                selected_cluster_paper_ids = st.session_state['cluster_df_detail']['Node'].values.tolist()[st.session_state['next_number_of_cluster_review_papers'] - st.session_state['number_of_cluster_review_papers']:st.session_state['next_number_of_cluster_review_papers']]
-                result_list, result_dict = get_papers_from_ids(selected_cluster_paper_ids)
-                selected_papers = set_paper_information(pd.DataFrame(result_dict))
+            # response に含まれている Referenceの表示
+            reference_indices = extract_reference_indices(cluster_response)
+            references_list = [reference_text for i, reference_text in enumerate(reference_links) if
+                               i in reference_indices]
+            draft_references_list = [reference_text for i, reference_text in enumerate(draft_references) if
+                                     i in reference_indices]
+            st.session_state['cluster_references_list'] = references_list
+            st.session_state['cluster_draft_references_list'] = draft_references_list
 
-                if st.session_state['cluster_review_type'] == '通常':
-                    response, links, caption, draft_references = streamlit_title_review_papers(selected_papers, st.session_state['query'], model='gpt-4-1106-preview',
-                                                                                               language=st.session_state['cluster_review_toggle'])
-                elif st.session_state['cluster_review_type'] == '長文':
-                    response, links, caption, draft_references = streamlit_title_long_review_papers(selected_papers, st.session_state['query'], model='gpt-4-1106-preview',
-                                                                                               language=st.session_state['cluster_review_toggle'])
-                else:
-                    raise ValueError(f"Invalid Review Type {st.session_state['cluster_review_type']}")
-
-
-                st.session_state['cluster_review_response'] = response
-                st.session_state['cluster_review_caption'] = f"{button_title}の論文による" + caption
-
-                reference_indices = extract_reference_indices(response)
-                references_list = [reference_text for i, reference_text in enumerate(links) if i in reference_indices]
-                draft_references_list = [reference_text for i, reference_text in enumerate(draft_references) if i in reference_indices]
-                st.session_state['cluster_references_list'] = references_list
-                st.session_state['cluster_draft_references_list'] = draft_references_list
-                st.rerun()
+            st.session_state['cluster_references_list_list'].append(references_list)
+            st.session_state['cluster_draft_references_list_list'].append(draft_references_list)
+            st.rerun()
 
 def generate_cluster_draft_component():
     if 'number_of_cluster_review_papers' in st.session_state:
-        display_description(f"文章の草稿を入力してください。クラスタ内上位 {st.session_state['number_of_cluster_review_papers']} 件のレビューによりエビデンスを付与します。", 3)
+        display_description(f"文章の草稿を入力してくださいクラスタ内上位 {st.session_state['number_of_cluster_review_papers']} 件のレビューによりエビデンスを付与します", 3)
         #ドラフトの入力部分
         if not 'cluster_review_draft_text' in st.session_state:
             draft_text = st.text_area(label='cluster review draft input filed.', placeholder='Past your draft of review here.', label_visibility='hidden', height=300)
         else:
-            draft_text = st.text_area(label='clsuter review draft input filed.', value = st.session_state['cluster_review_draft_text'],placeholder='Past your draft of review here.', label_visibility='collapsed', height=300)
+            draft_text = st.text_area(label='cluster review draft input filed.', value = st.session_state['cluster_review_draft_text'], placeholder='Past your draft of review here.', label_visibility='collapsed', height=300)
         st.session_state['cluster_review_draft_text'] = draft_text
 
         toggle = display_language_toggle(f"クラスタレビューによるエビデンス付与")
         mode_toggle = display_draft_evidence_toggle(f"クラスタレビュー生成")
 
-        write_summary_button = st.button(f"クラスタ内上位{st.session_state['number_of_cluster_review_papers']}の論文レビューによるエビデンス付与。(時間がかかります)", )
+        write_summary_button = st.button(f"クラスタ内上位{st.session_state['number_of_cluster_review_papers']}の論文レビューによるエビデンス付与", )
 
         if write_summary_button and len(draft_text) > 0:
             if 'cluster_review_response' in st.session_state and len(st.session_state['cluster_review_response']) > 0 and 'cluster_draft_references_list' in st.session_state:
-                with st.spinner("⏳ AIによるエビデンスの付与中です。 お待ち下さい..."):
+                with st.spinner("⏳ AIによるエビデンスの付与中です お待ち下さい..."):
                     summary_response, caption = streamlit_summery_writer_with_draft(st.session_state['cluster_review_response'], draft_text, st.session_state['cluster_draft_references_list'], model = 'gpt-4-1106-preview', language=toggle, mode=mode_toggle)
                     display_description(caption)
                     display_spaces(1)
@@ -308,9 +307,9 @@ def generate_cluster_draft_component():
                                        i in reference_indices]
                     st.session_state['summary_references_list'] = references_list
             else:
-                display_description("クラスタレビューがありません。先にクラスタレビューを生成してください。")
+                display_description("クラスタレビューがありません先にクラスタレビューを生成してください")
         elif write_summary_button:
-            display_description("入力欄が空白です。草稿を入力してください。")
+            display_description("入力欄が空白です草稿を入力してください")
 
 def display_cluster_draft_component():
     if 'summary_response' in st.session_state and 'summary_references_list' in st.session_state:
@@ -342,11 +341,13 @@ def cluster_review_papers():
 
     #クラスターのレビュー生成
 
-    generate_cluster_review_component()
+    configure_cluster_review_component()
 
     display_cluster_review_component()
 
-    generate_next_cluster_review_component()
+    display_next_cluster_review_component()
+
+    generate_cluster_review_component()
 
     display_spaces(2)
 

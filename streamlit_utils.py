@@ -160,6 +160,17 @@ def display_draft_evidence_toggle(unique_string):
         raise ValueError(f"Invalid toggle {toggle}")
     return toggle
 
+def display_citation_threshold_toggle():
+    toggle = st.checkbox(
+        f"引用関係が1つしかない文献は取り除く",
+        value=True
+    )
+    if toggle:
+        return 1
+    else:
+        return -1
+
+
 def display_cluster_years(df: pd.DataFrame):
     display_description("クラスタ内の論文出版年", 5)
     min_year, max_year, ave_year = df['year'].min(), df['year'].max(), df['year'].mean()

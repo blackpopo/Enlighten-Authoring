@@ -63,7 +63,7 @@ def tiktoken_setup(offset = 8):
 tiktoken_dict = tiktoken_setup()
 
 
-def get_semantic_scholar_fields():
+def get_semantic_scholar_fields(expansion=True):
     fields = ["paperId",
               "title",
               "abstract",
@@ -77,8 +77,12 @@ def get_semantic_scholar_fields():
               "referenceCount",
               ]
 
-    expand_fields = fields + ["references"] + [f"references.{field}" for field in fields]
-    return ",".join(expand_fields)
+    if expansion:
+        expand_fields = fields + ["references"] + [f"references.{field}" for field in fields]
+        expand_fields = expand_fields + ["citations"] + [f"citations.{field}" for field in fields]
+        return ",".join(expand_fields)
+    else:
+        return ','.join(fields)
 
 def get_azure_gpt_response(system_input, model_name='gpt-4-32k'):
     response = client.chat.completions.create(
@@ -174,8 +178,9 @@ def get_papers(streamlit_empty, query_text, year, offset = 0, limit = 100, total
   fields = get_semantic_scholar_fields()
 
   # 最初の結果セットを取得
-  # _get_papersはエラーが発生した場合 None を返す
   result = _get_papers(streamlit_empty, query_text, year, offset, limit, fields=fields)
+  if not result:
+      return get_papers(streamlit_empty, query_text, year, offset, limit = int(limit / 5), total_limit = total_limit)
   if not result or result['total'] == 0:
     return [], 0
 
@@ -190,10 +195,12 @@ def get_papers(streamlit_empty, query_text, year, offset = 0, limit = 100, total
       offset += limit
       result = _get_papers(streamlit_empty, query_text, year, offset, limit, fields=fields)
       if not result:
+          return get_papers(streamlit_empty, query_text, year, offset, limit=int(limit / 5), total_limit=total_limit)
+      if not result:
           if len(papers) > 0:
               break
           else:
-            return [], 0
+             return [], 0
       print(f"{min(round(min(total_limit, offset + limit) / min(total_limit, result['total']) * 100, 1), 100)}%")
       streamlit_empty.write(f"{min(round(min(total_limit, offset + limit) / min(total_limit, result['total']) * 100, 1), 100)}%の論文を取得しました。")
       papers.extend(result['data'])
@@ -214,6 +221,13 @@ def get_all_papers_from_references(papers):
                 ref_dict = {'paperId': row['paperId']}
                 ref_dict.update(reference)
                 reference_df_list.append(ref_dict)
+
+        citations = row['citations']
+        if citations:
+            for citation in citations:
+                cite_dict = {"paperId" : row['paperId']}
+                cite_dict.update(citation)
+                reference_df_list.append(cite_dict)
 
     reference_df = pd.DataFrame(reference_df_list)
 
@@ -268,7 +282,7 @@ def _get_papers_from_ids(paper_ids, fields):
 def get_papers_from_ids(paper_ids, offset=0, limit=20):
     total_results = []
     total_dict = {}
-    fields = get_semantic_scholar_fields()
+    fields = get_semantic_scholar_fields(expansion=False)
 
     # 修正した進捗表示
     total_len = len(paper_ids)
@@ -528,8 +542,8 @@ def streamlit_title_long_review_papers(papers, query_text, model = 'gpt-4-32k', 
     else:
         raise ValueError(f'Invalid language {language}')
     for section, prompt in zip(sections, prompts):
-        cluster_summary += section + '\n\n'
-        result.write(section + '\n\n')
+        cluster_summary +=  '\n' + section + '\n\n'
+        result.write('\n' + section + '\n\n')
         for response in get_azure_gpt_response_stream(prompt, model):
             response_text = response.choices[0].delta.content
             if response_text:
@@ -907,24 +921,24 @@ def construct_direct_quotations_graph(papers_df):
                 G.add_edge(paper_id, ref_id,
                            weight=(papers_df.loc[k, 'citationCount'] + ref_citeCount) / 2)
 
-        # # paperを引用している文献についての処理
-        # for reference in papers_df.loc[k, 'citations']:
-        #     ref_id = reference.get('paperId')
-        #     ref_year = reference.get('year')
-        #     ref_citeCount = reference.get('citationCount', 0)
-        #     if pd.notnull(ref_id) and pd.notnull(ref_year) and pd.notnull(ref_citeCount):  # 参照のpaperIdとyearもチェック
-        #         # 参照がすでにノードとして追加されていない場合にのみ追加
-        #         if ref_id not in G:
-        #             G.add_node(ref_id, title=f"To:{reference['title']}",
-        #                        citationCount=reference.get('citationCount', 0), year=ref_year)
-        #         # エッジの追加（重みはu,vの被引用回数の平均）
-        #         G.add_edge(paper_id, ref_id,
-        #                    weight=(papers_df.loc[k, 'citationCount'] + ref_citeCount) / 2)
+        # paperを引用している文献についての処理
+        for citation in papers_df.loc[k, 'citations']:
+            cite_id = citation.get('paperId')
+            cite_year = citation.get('year')
+            cite_citeCount = citation.get('citationCount', 0)
+            if pd.notnull(cite_id) and pd.notnull(cite_year) and pd.notnull(cite_citeCount):  # 参照のpaperIdとyearもチェック
+                # 参照がすでにノードとして追加されていない場合にのみ追加
+                if cite_id not in G:
+                    G.add_node(cite_id, title=f"To:{citation['title']}",
+                               citationCount=cite_citeCount, year=cite_year)
+                # エッジの追加（重みはu,vの被引用回数の平均）
+                G.add_edge(paper_id, cite_id,
+                           weight=(papers_df.loc[k, 'citationCount'] + cite_citeCount) / 2)
     # 無向グラフにする
     H = G.to_undirected()
     return H, G
 
-def construct_direct_quotation_and_scrivener_combination(papers_df, threshold_year):
+def construct_direct_quotation_and_scrivener_combination(papers_df, threshold_year, threshold_degree):
     _, G = construct_direct_quotations_graph(papers_df)
     # thres_year以降のノードのみを含む辞書を作成
     neighbors_dict = {node: set(G.neighbors(node)) for node in G.nodes() if G.nodes[node].get('year', 0) >= threshold_year}
@@ -948,7 +962,7 @@ def construct_direct_quotation_and_scrivener_combination(papers_df, threshold_ye
     # 一度にすべてのエッジを追加
     G.add_edges_from(edges_to_add)
     # グラフの次数が1より大きいノードだけを取得（1回以上引用されている）
-    large_degree = [node for node, degree in dict(G.degree()).items() if degree > 1]
+    large_degree = [node for node, degree in dict(G.degree()).items() if degree > threshold_degree]
     # サブグラフの作成
     H = G.subgraph(large_degree)
     # # 無向グラフにする
@@ -993,7 +1007,6 @@ def cluster_for_year(_H, df_centrality, start_year, end_year, threshold_year):
     for _start_year, _end_year in windows:
         # サブグラフの抽出
         subgraph = _H.subgraph([n for n, attr in _H.nodes(data=True) if _start_year <= attr['year'] <= _end_year])
-        #     subgraphs.append(subgraph)
 
         if len(subgraph) == 0:
             continue
@@ -1015,9 +1028,10 @@ def cluster_for_year(_H, df_centrality, start_year, end_year, threshold_year):
 
         # データフレームにクラスタ情報を追加
         for node, cluster in partition.items():
+            cluster_id = str(cluster + 1).zfill(2)
             clustering.append({
                 'Node': node,
-                'Cluster': f"〜{_end_year}-{cluster + 1}"
+                'Cluster': f"〜{_end_year}-{cluster_id}"
             })
 
     # クラスタリング結果をデータフレームに変換
@@ -1246,8 +1260,6 @@ def process_display_cluster(df_centrality, cluster_df):
 # @st.cache_resource
 def create_quotient_graph(_display_cluster, _H , _communities, _partition):
     # dfを使用してcommunities辞書を作成（キー：クラスタ番号、値：所属ノードのリスト）
-
-
     # 新しいグラフ B を作成
     B = nx.Graph()
 
