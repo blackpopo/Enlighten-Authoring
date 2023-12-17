@@ -3,41 +3,49 @@ import stat
 from streamlit_utils import *
 from utils import *
 
+def display_graph_component():
+    display_description('文献のクラスタリング', size=2)
+    display_description("文献の引用関係に基づいてクラスタリングすることで、より関心に近いレビューを生成することができます")
+    display_spaces(1)
+
+    citation_threshold = display_citation_threshold_toggle()
+    if 'H' in st.session_state and 'G' in st.session_state and 'citation_threshold' in st.session_state and st.session_state['citation_threshold'] != citation_threshold:
+        st.session_state.pop('H')
+        st.session_state.pop('G')
+    st.session_state['citation_threshold'] = citation_threshold
+
 def construct_graph_component():
     #サブグラフ(H)の構築
-    if 'papers_df' in st.session_state:
-        display_description('文献のクラスタリング', size=2)
-        display_description("文献の引用関係に基づいてクラスタリングすることで、より関心に近いレビューを生成することができます")
-        display_spaces(1)
-
-        citation_threshold = display_citation_threshold_toggle()
-
+    if 'papers_df' in st.session_state and 'G' not in st.session_state and 'H' not in st.session_state:
         with st.spinner("⏳ コミュニティグラフの構築中です..."):
-            H, G = construct_direct_quotation_and_scrivener_combination(st.session_state['papers_df'], st.session_state['year'][3], citation_threshold)
+            H, G = construct_direct_quotation_and_scrivener_combination(st.session_state['papers_df'], st.session_state['year'][3], st.session_state['citation_threshold'])
             st.session_state['G'] = G
             st.session_state['H'] = H
 
         node_attributes = pd.DataFrame.from_dict(dict(H.nodes(data=True)), orient='index')
         node_attributes.index.name = "Node Name (Paper ID)"
-
-
         if len(H.nodes) == 0:
             display_error("グラフの構築に失敗しました申し訳ございませんが、Semantic Scholar の検索内容を変更して再検索してください")
             st.session_state.pop('H')
             #グラフの構築に失敗した場合はここで停止する
             st.stop()
-            
-# @st.cache_data
-def add_all_row(_cluster_df):
-    # 既存の _cluster_df DataFrameを使用して計算を行います
-    # 各列の適切な値を計算
-    total_node = _cluster_df['Node'].sum()
-    total_recent5years_count = _cluster_df['Recent5YearsCount'].sum()
-    mean_degree_centrality = _cluster_df['DegreeCentrality'].mean()
-    mean_page_rank = _cluster_df['PageRank'].mean()
-    mean_year = _cluster_df['Year'].mean()
-    citationCount = _cluster_df['CitationCount'].sum()
 
+
+# _cluster_df DataFrameに新しい行を追加する関数
+def add_all_row(_cluster_df):
+    # 'Node'列の合計値を計算
+    total_node = _cluster_df['Node'].sum()
+    # 'Recent5YearsCount'列の合計値を計算
+    total_recent5years_count = _cluster_df['Recent5YearsCount'].sum()
+    # 'DegreeCentrality'列の平均値を計算
+    mean_degree_centrality = _cluster_df['DegreeCentrality'].mean()
+    # 'PageRank'列の平均値を計算
+    mean_page_rank = _cluster_df['PageRank'].mean()
+    # 'Year'列の平均値を計算
+    mean_year = _cluster_df['Year'].mean()
+    # 'CitationCount'列の合計値を計算
+    citationCount = _cluster_df['CitationCount'].sum()
+    # 新しい行を作成し、統計情報とClusterKeywords列を設定
     summary_row = pd.DataFrame({
         'Node': [total_node],
         'DegreeCentrality': [mean_degree_centrality],
@@ -47,12 +55,14 @@ def add_all_row(_cluster_df):
         'Recent5YearsCount': [total_recent5years_count],
         'ClusterKeywords': ["All papers"]
     }).set_index(pd.Index(['all papers'], name='Cluster'))
-
+    # _cluster_dfを逆順に並べ替え
     _cluster_df = _cluster_df.iloc[::-1]
-
-    # 0番目の行をDataFrameの先頭に追加
+    # 新しい行をDataFrameの先頭に追加
     _cluster_df = pd.concat([summary_row, _cluster_df])
+
+    # 更新されたDataFrameを返す
     return _cluster_df
+
 
 def setup_cluster_df(df_centrality):
     cluster_keywords = calc_tf_idf(df_centrality)
@@ -80,9 +90,10 @@ def setup_cluster_df(df_centrality):
     cluster_df['CitationCount'] = cluster_df['CitationCount'].apply(lambda x: str(round(x, 2)))
     return cluster_df, cluster_keywords
 
+
 # @st.cache_data
 def construct_cluster_component():
-    if 'H' in st.session_state and 'cluster_df' not in st.session_state:
+    if 'H' in st.session_state:
         with st.spinner(f"⏳ 論文のクラスタリング中です..."):
             #ページランクによる全体のソートアルゴリズム
             df_centrality = page_ranking_sort(st.session_state['H'], st.session_state['year'][1], st.session_state['year'][2], st.session_state['year'][3])
@@ -97,12 +108,16 @@ def construct_cluster_component():
             st.session_state['cluster_df'] = cluster_df
             st.session_state['cluster_id_to_paper_ids'] = cluster_id_paper_ids
             cluster_id_paper_ids["all papers"] = []
+            #すべての paper_id を取得
+            cluster_all_ids = []
             for ids in cluster_id_paper_ids.values():
-                cluster_id_paper_ids["all papers"].extend(ids)
+                cluster_all_ids.extend(ids)
+
+            cluster_id_paper_ids['all papers'] = sort_ids_by_reference_order(st.session_state['all_papers_df']['paperId'].tolist(), cluster_all_ids)
             st.session_state['cluster_id_to_paper_ids'] = cluster_id_paper_ids
 
 def display_cluster_component():
-    if 'cluster_df' in st.session_state.keys():
+    if 'cluster_df' in st.session_state:
         display_clusters = st.session_state['cluster_df'].copy()
         cluster_candidates = display_clusters.index.tolist()
         #あとで使用する情報の保存
@@ -146,12 +161,13 @@ def display_each_cluster_component():
         temp_cluster_df_detail =  matched_papers_df.rename(columns={'PageRank': "Importance"})
         temp_cluster_df_detail.index.name = 'Paper ID'
 
-        if st.session_state['cluster_sort'] == "重要度":
-            temp_cluster_df_detail = temp_cluster_df_detail.sort_values('Importance', ascending=False)
-        elif  st.session_state['cluster_sort'] == "出版年":
-            temp_cluster_df_detail = temp_cluster_df_detail.sort_values("year", ascending=False)
-        else:
-            raise ValueError(f"Invalid Sort { st.session_state['cluster_sort'] }")
+        if st.session_state['selected_number'] != 'all papers':
+            if st.session_state['cluster_sort'] == "重要度":
+                temp_cluster_df_detail = temp_cluster_df_detail.sort_values('Importance', ascending=False)
+            elif  st.session_state['cluster_sort'] == "出版年":
+                temp_cluster_df_detail = temp_cluster_df_detail.sort_values("year", ascending=False)
+            else:
+                raise ValueError(f"Invalid Sort { st.session_state['cluster_sort'] }")
 
         if 'number_of_cluster_review_papers' in st.session_state:
             display_cluster_dataframe(temp_cluster_df_detail, f'クラスタ番号 {selected_number} 内での検索結果上位 {st.session_state["number_of_cluster_review_papers"]} 件', st.session_state["number_of_cluster_review_papers"])
@@ -173,13 +189,14 @@ def display_each_cluster_component():
         if st.session_state['selected_number'] == 'all papers':
             display_cluster_years(temp_cluster_df_detail)
 
-        #streamlit にクラスタの情報を保存
-        if st.session_state['cluster_sort'] == "重要度":
-            matched_papers_df = matched_papers_df.sort_values('PageRank', ascending=False)
-        elif  st.session_state['cluster_sort'] == "出版年":
-            matched_papers_df = matched_papers_df.sort_values("year", ascending=False)
-        else:
-            raise ValueError(f"Invalid Sort { st.session_state['cluster_sort'] }")
+        if st.session_state['selected_number'] != 'all papers':
+            #streamlit にクラスタの情報を保存
+            if st.session_state['cluster_sort'] == "重要度":
+                matched_papers_df = matched_papers_df.sort_values('PageRank', ascending=False)
+            elif  st.session_state['cluster_sort'] == "出版年":
+                matched_papers_df = matched_papers_df.sort_values("year", ascending=False)
+            else:
+                raise ValueError(f"Invalid Sort { st.session_state['cluster_sort'] }")
 
         st.session_state['cluster_df_detail'] = matched_papers_df
 
@@ -232,8 +249,8 @@ def display_next_cluster_review_component():
             st.session_state['start_cluster_review'] = True
 
 def generate_cluster_review_component():
-    cluster_df_detail = st.session_state['cluster_df_detail']
     if 'start_cluster_review' in st.session_state and st.session_state['start_cluster_review']:
+        cluster_df_detail = st.session_state['cluster_df_detail']
         st.session_state['start_cluster_review'] = False
         start_index = st.session_state['number_of_cluster_review_papers'] * st.session_state['cluster_start_index']
         end_index = st.session_state['number_of_cluster_review_papers'] * (st.session_state['cluster_start_index'] + 1)
@@ -324,6 +341,8 @@ def cluster_review_papers():
     #papers_df がない場合にはやり直す
     if 'papers_df' in st.session_state and len(st.session_state['papers_df']) == 0:
         st.rerun()
+
+    display_graph_component()
 
     #cluster_df の構築
     construct_graph_component()

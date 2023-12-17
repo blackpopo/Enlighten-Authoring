@@ -168,7 +168,7 @@ def display_citation_threshold_toggle():
     if toggle:
         return 1
     else:
-        return -1
+        return 0
 
 
 def display_cluster_years(df: pd.DataFrame):

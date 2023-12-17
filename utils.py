@@ -156,12 +156,12 @@ def _get_papers(streamlit_empty, query, year, offset, limit, fields):
             if response.status_code == 200:
                 return response.json()
             elif response.status_code == 504:
-                streamlit_empty.write(f"Request timed out, retrying... {retries} attempts left")
+                streamlit_empty.write(f"タイムアウトしました。再取得中です...")
                 print(f"Request timed out, retrying... {retries} attempts left")
                 retries -= 1
                 sleep(1)  # タイムアウトした場合、少し待つ
             else:
-                streamlit_empty.write(f"Request error message {response.reason}")
+                streamlit_empty.write(f"論文の取得に失敗しました。リクエストを分割して取得します。")
                 print(f"Request failed with status {response.status_code}")
                 print(f"Request error message {response.reason}")
                 print(f"Request content {response.content}")
@@ -996,8 +996,23 @@ def generate_windows(start_year, end_year, threshold_year ,window_size):
 def get_cluster_papers(df_centrality, cluster_nodes):
     df_centrality = df_centrality.copy()
     df_centrality_filtered = df_centrality[df_centrality['Node'].isin(cluster_nodes)]
+    order_dict = {node: index for index, node in enumerate(cluster_nodes)}
+    # Adding a temporary column for sorting
+    df_centrality_filtered ['sort_order'] = df_centrality_filtered ['Node'].map(order_dict)
+    # Sorting by the temporary column and dropping it
+    df_centrality_filtered = df_centrality_filtered .sort_values(by='sort_order').drop(columns=['sort_order'])
     df_centrality_filtered['Title'] = df_centrality_filtered['Title'].apply(lambda x: x.replace('To:', '').replace('From:', ''))
     return df_centrality_filtered
+
+#すべての論文を検索順に並べ替えるコード
+def sort_ids_by_reference_order(reference_ids, ids_to_sort):
+    # Creating a set for faster lookup
+    reference_set = set(reference_ids)
+    # Filter out ids that are not in the reference list
+    filtered_ids = [id_ for id_ in ids_to_sort if id_ in reference_set]
+    # Sort based on the index in the reference list
+    sorted_ids = sorted(filtered_ids, key=lambda x: reference_ids.index(x))
+    return sorted_ids
 
 # @st.cache_resource
 def cluster_for_year(_H, df_centrality, start_year, end_year, threshold_year):
