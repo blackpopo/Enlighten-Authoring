@@ -919,7 +919,7 @@ def construct_direct_quotations_graph(papers_df):
                                citationCount=reference.get('citationCount', 0), year=ref_year)
                 # エッジの追加（重みはu,vの被引用回数の平均）
                 G.add_edge(paper_id, ref_id,
-                           weight=(papers_df.loc[k, 'citationCount'] + ref_citeCount) / 2)
+                           weight=(papers_df.loc[k, 'citationCount'] + ref_citeCount + 1e-6) / 2)
 
         # paperを引用している文献についての処理
         for citation in papers_df.loc[k, 'citations']:
@@ -933,7 +933,7 @@ def construct_direct_quotations_graph(papers_df):
                                citationCount=cite_citeCount, year=cite_year)
                 # エッジの追加（重みはu,vの被引用回数の平均）
                 G.add_edge(paper_id, cite_id,
-                           weight=(papers_df.loc[k, 'citationCount'] + cite_citeCount) / 2)
+                           weight=(papers_df.loc[k, 'citationCount'] + cite_citeCount + 1e-6) / 2)
     # 無向グラフにする
     H = G.to_undirected()
     return H, G
@@ -956,7 +956,7 @@ def construct_direct_quotation_and_scrivener_combination(papers_df, threshold_ye
         if common_count > 0:
             u_citation_count = G.nodes[u].get('citationCount', 0)
             v_citation_count = G.nodes[v].get('citationCount', 0)
-            average_citation_count = (u_citation_count + v_citation_count) / 2
+            average_citation_count = (u_citation_count + v_citation_count + 1e-6) / 2
             edges_to_add.append((u, v, {'weight': average_citation_count}))
 
     # 一度にすべてのエッジを追加
@@ -1023,8 +1023,10 @@ def cluster_for_year(_H, df_centrality, start_year, end_year, threshold_year):
         # サブグラフの抽出
         subgraph = _H.subgraph([n for n, attr in _H.nodes(data=True) if _start_year <= attr['year'] <= _end_year])
 
+        #サブグラフが0なら continue
         if len(subgraph) == 0:
             continue
+
 
         # Louvain法によるクラスタリング
         partition = community_louvain.best_partition(subgraph, random_state=42)
@@ -1098,7 +1100,11 @@ def extract_reference_indices(response):
         for num in num_str.split(","):
             num = num.strip()
             if '-' in num:  # ハイフンがある場合、その範囲のすべての数字を取得します。
-                start, end = map(int, num.split('-'))
+                try:
+                    start, end = map(int, num.split('-'))
+                except Exception as e:
+                    print(f'ERROR AS {e}')
+                    continue
                 transformed_numbers.extend(range(start, end + 2))
             else:
                 transformed_numbers.append(int(num))

@@ -9,9 +9,8 @@ def display_graph_component():
     display_spaces(1)
 
     citation_threshold = display_citation_threshold_toggle()
-    if 'H' in st.session_state and 'G' in st.session_state and 'citation_threshold' in st.session_state and st.session_state['citation_threshold'] != citation_threshold:
+    if 'H' in st.session_state and 'citation_threshold' in st.session_state and st.session_state['citation_threshold'] != citation_threshold:
         st.session_state.pop('H')
-        st.session_state.pop('G')
     st.session_state['citation_threshold'] = citation_threshold
 
 def construct_graph_component():
