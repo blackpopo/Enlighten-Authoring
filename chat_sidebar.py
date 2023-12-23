@@ -181,7 +181,7 @@ def display_chat_component():
             return
 
 
-        prompt = st.sidebar.text_input("論文について聞きたいことを入力してください。", key="chat_input", value="")
+        prompt = st.sidebar.text_input("論文について聞きたいことを入力してください。", value="")
         prompt_button = st.sidebar.button("送信")
         if prompt_button:
             if len(prompt) > 0:
