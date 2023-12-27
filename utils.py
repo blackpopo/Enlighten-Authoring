@@ -997,12 +997,14 @@ def get_cluster_papers(df_centrality, cluster_nodes):
     df_centrality = df_centrality.copy()
     df_centrality_filtered = df_centrality[df_centrality['Node'].isin(cluster_nodes)]
     order_dict = {node: index for index, node in enumerate(cluster_nodes)}
-    # Adding a temporary column for sorting
-    df_centrality_filtered ['sort_order'] = df_centrality_filtered ['Node'].map(order_dict)
-    # Sorting by the temporary column and dropping it
-    df_centrality_filtered = df_centrality_filtered .sort_values(by='sort_order').drop(columns=['sort_order'])
-    df_centrality_filtered['Title'] = df_centrality_filtered['Title'].apply(lambda x: x.replace('To:', '').replace('From:', ''))
+    # .locを使用してsort_order列を追加
+    df_centrality_filtered.loc[:, 'sort_order'] = df_centrality_filtered['Node'].map(order_dict)
+    # ソートして、不要な列を削除
+    df_centrality_filtered = df_centrality_filtered.sort_values(by='sort_order').drop(columns=['sort_order'])
+    # .locを使用して'Title'列を更新
+    df_centrality_filtered.loc[:, 'Title'] = df_centrality_filtered['Title'].apply(lambda x: x.replace('To:', '').replace('From:', ''))
     return df_centrality_filtered
+
 
 #すべての論文を検索順に並べ替えるコード
 def sort_ids_by_reference_order(reference_ids, ids_to_sort):
