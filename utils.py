@@ -161,7 +161,7 @@ def _get_papers(streamlit_empty, query, year, offset, limit, fields):
                 retries -= 1
                 sleep(1)  # タイムアウトした場合、少し待つ
             else:
-                streamlit_empty.write(f"論文の取得に失敗しました。リクエストを分割して取得します。")
+                streamlit_empty.write(f"リクエストを分割して取得しています。")
                 print(f"Request failed with status {response.status_code}")
                 print(f"Request error message {response.reason}")
                 print(f"Request content {response.content}")
@@ -604,7 +604,8 @@ def title_review_generate_prompt(abstracts, query_text, language):
                             \n
                             これらに基づいて、{query_text}についての文献レビューを作成するための以下のタスクを実行してください。
                             {query_text}と関連しないアブストラクトは無視してください。
-                            なお、事前知識や思い込みは使用しないで、水平思考で答えてください。\n
+                            なお、事前知識や思い込みは使用しないで、水平思考で答えてください。
+                            また、回答にあたっては、[number]という形式で引用を明記してください。\n
                             \n
                             ## 定義\n
                             {query_text}について1000字以内で定義してください。情報があれば人口動態や罹患率についても述べてください。\n
@@ -849,7 +850,7 @@ def japanese_peper_interpreter_generate_prompt(pdf_text):
     return japanese_prompt
 
 def japanese_paper_chat(pdf_text, chat_log, model = 'gpt-4-1106-preview'):
-    system_prompt = f"以下は学術論文の本文です。この内容に従って最後のユーザの質問に答えてください。{pdf_text}\n\n回答は日本語で行ってください。\n\n"
+    system_prompt = f"以下は学術論文の本文です。この内容に従って最後のユーザの質問に答えてください。#　論文本文\n\n{pdf_text}\n\n回答は日本語で行ってください。\n\n"
     messages = [{"role" : "system", "content" : system_prompt}]
     for chat in chat_log:
         messages.append({"role" : chat['role'], "content": chat['content']})
@@ -869,7 +870,7 @@ def japanese_paper_chat(pdf_text, chat_log, model = 'gpt-4-1106-preview'):
             print(f"Error as {e}")
             return f"エラーが発生しました。\n{e}"
     else:
-        return "論文の長さが規定の長さよりも長いため送信できませんでした。"
+        return "論文の長さが規定の長さよりを超えたため、送信できませんでした。"
 
 
 def gpt_japanese_paper_interpreter(abstract, model = 'gpt-4-1106-preview'):
@@ -889,7 +890,7 @@ def gpt_japanese_paper_interpreter(abstract, model = 'gpt-4-1106-preview'):
             print(f"Error as {e}")
             return f"エラーが発生しました。\n{e}"
     else:
-        return "論文の長さが規定の長さよりも長いため送信できませんでした。"
+        return "論文の長さが規定の長さよりを超えたため、送信できませんでした。"
 
 
 

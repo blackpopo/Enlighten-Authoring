@@ -5,6 +5,12 @@ from research_papers import research_papers
 from cluster_review import cluster_review_papers
 from chat_sidebar import chat_about_papers
 
+st.set_page_config(
+    page_title="Enlighten Authoring",
+    initial_sidebar_state="auto",
+    layout="wide",
+)
+
 def display_query():
     #Queryの管理
     display_title()

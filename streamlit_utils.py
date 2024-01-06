@@ -15,13 +15,6 @@ OPENAI_API_KEY = st.secrets['OPENAI_API_KEY']
 DEEPL_API_KEY = st.secrets['DEEPL_API_KEY']
 SemanticScholar_API_KEY = st.secrets['SEMANTICSCHOLAR_API_KEY']
 
-
-st.set_page_config(
-    page_title="Enlighten Authoring",
-    initial_sidebar_state="auto",
-    layout="wide",
-)
-
 def display_dataframe(df, title, topk, columns=None):
     st.write(
         f"<h5 style='text-align: left;'> {title} </h5>",

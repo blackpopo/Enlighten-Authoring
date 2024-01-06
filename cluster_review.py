@@ -1,4 +1,5 @@
-import stat
+import clipboard
+import streamlit.testing.element_tree
 
 from streamlit_utils import *
 from utils import *
@@ -223,13 +224,14 @@ def configure_cluster_review_component():
             st.session_state['cluster_draft_references_list_list'] = []
 
 
+#実際のクラスタレビュー表示部分．
 def display_cluster_review_component():
     if 'cluster_review_response_list' in st.session_state and 'cluster_references_list_list' in st.session_state  and 'cluster_review_caption_list' in st.session_state and 'cluster_draft_references_list' in st.session_state:
         assert len(st.session_state['cluster_review_response_list']) == len(st.session_state['cluster_review_caption_list'])\
                                                                 == len(st.session_state['cluster_references_list_list']) \
                                                                 == len(st.session_state['cluster_draft_references_list_list'])
 
-        for cluster_review_caption, cluster_review_response, cluster_references_list in zip(st.session_state['cluster_review_caption_list'],
+        for index, cluster_review_caption, cluster_review_response, cluster_references_list in zip(range(1, len(st.session_state['cluster_review_caption_list']) + 1), st.session_state['cluster_review_caption_list'],
                                                                                             st.session_state['cluster_review_response_list'], st.session_state['cluster_references_list_list']):
             display_description(cluster_review_caption, size=5)
             display_spaces(1)
@@ -238,6 +240,12 @@ def display_cluster_review_component():
             if len(cluster_references_list) > 0:
                 display_description('参考文献リスト', size=6)
                 display_references_list(cluster_references_list)
+
+            copy_button = st.button(f"{index}番目のレビューコピー")
+            if copy_button:
+                clipboard.copy(cluster_review_response)
+                st.write("レビューをコピーしました。")
+            display_spaces(2)
 
 def display_next_cluster_review_component():
     if 'cluster_review_response_list' in st.session_state and 'cluster_references_list_list' in st.session_state  and 'cluster_review_caption_list' in st.session_state and 'cluster_draft_references_list' in st.session_state:
@@ -335,6 +343,12 @@ def display_cluster_draft_component():
         if len(st.session_state['summary_references_list']) > 0:
             display_description('参考文献リスト', size=6)
             display_references_list(st.session_state['summary_references_list'])
+
+        copy_button = st.button(f"レビューコピー")
+        if copy_button:
+            clipboard.copy(st.session_state['summary_response'])
+            st.write("レビューをコピーしました。")
+        display_spaces(2)
 
 def cluster_review_papers():
     #papers_df がない場合にはやり直す
